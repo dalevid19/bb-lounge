@@ -27,6 +27,7 @@
     window.SITE.session = { id: data.user_id, name: data.name, role: data.role, staff: data.staff_id || "" };
     $("#bbLogin").hidden = true;
     resolveReady();
+    push.sub().then((s) => s && Notification.permission === "granted" && push.save(s)).catch(() => {});
   }
   document.addEventListener("submit", async (ev) => {
     if (ev.target.id !== "bbLoginForm") return;
@@ -133,9 +134,35 @@
 
   /* ---------- staff accounts (owner) ---------- */
   const helper = window.supabase.createClient(CFG.url, CFG.anonKey, { auth: { persistSession: false, autoRefreshToken: false, storageKey: "bb-helper" } });
+  /* ---------- phone alerts (web push) ---------- */
+  const urlB64 = (str) => { const pad = "=".repeat((4 - str.length % 4) % 4); const raw = atob((str + pad).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(raw, (c) => c.charCodeAt(0)); };
+  const push = {
+    supported: () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window,
+    needsHomeScreen: () => /iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches)),
+    async sub() { if (!push.supported()) return null; const r = await navigator.serviceWorker.getRegistration(); return r ? await r.pushManager.getSubscription() : null; },
+    async status() {
+      if (push.needsHomeScreen()) return "homescreen";
+      if (!push.supported()) return "unsupported";
+      if (Notification.permission === "denied") return "denied";
+      return (await push.sub()) && Notification.permission === "granted" ? "on" : "off";
+    },
+    async save(s) { const j = s.toJSON(); const { error } = await sb.from("push_subs").upsert({ endpoint: j.endpoint, user_id: user.id, sub: j }); if (error) throw err(error); },
+    async enable() {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Alerts weren't allowed. To fix it, allow notifications for this site in your phone or browser settings.");
+      const reg = await navigator.serviceWorker.register("config.js", { scope: "./" });
+      await navigator.serviceWorker.ready;
+      let s = await reg.pushManager.getSubscription();
+      if (!s) s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(CFG.vapid) });
+      await push.save(s);
+    },
+    async disable() { const s = await push.sub(); if (!s) return; await sb.from("push_subs").delete().eq("endpoint", s.endpoint); await s.unsubscribe(); },
+    async forget() { try { const s = await push.sub(); if (s) await sb.from("push_subs").delete().eq("endpoint", s.endpoint); } catch (_) {} }
+  };
   window.SITE = {
     session: null,
-    signOut: async () => { await sb.auth.signOut(); location.reload(); },
+    push,
+    signOut: async () => { await push.forget(); await sb.auth.signOut(); location.reload(); },
     async listAccounts() { const { data, error } = await sb.from("profiles").select("*"); if (error) throw err(error); return data; },
     async createAccount({ username, password, name, role, staff_id }) {
       const { data, error } = await helper.auth.signUp({ email: emailOf(username), password: pinPw(password) });

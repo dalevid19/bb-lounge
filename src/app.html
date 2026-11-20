@@ -160,6 +160,9 @@ textarea { width: 100%; resize: vertical; }
 .remind .ra button.pri { background: var(--accent); color: var(--accent-ink); }
 @keyframes remIn { from { transform: translateY(-14px); opacity: 0; } }
 @keyframes remRing { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } }
+.clockbar .alerts svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; }
+.clockbar .alerts.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.clockbar .alerts.on { color: color-mix(in srgb, #15803d 85%, var(--ink)); }
 .clockbar .alerts { font: inherit; font-size: 12px; font-weight: 700; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 5px 11px; cursor: pointer; }
 .dayhead { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; padding: 14px 0 2px; }
 .dayhead:first-child { padding-top: 0; }
@@ -602,7 +605,7 @@ function clockHTML() {
   const now = new Date(), hr = +now.toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
   const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
   const first = ui.session && ui.session.name ? ui.session.name.split(/[\s(]/)[0] : "";
-  return `<div class="cg">${greet}${first ? ", " + esc(first) : ""}</div><div class="cd">${now.toLocaleDateString("en-PH", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div><div class="ct num">${now.toLocaleTimeString("en-PH", { timeZone: TZ, hour: "numeric", minute: "2-digit" })}</div>${alertsSupported() && Notification.permission === "default" ? '<button type="button" class="alerts" data-act="alertsOn">Turn on booking alerts</button>' : ""}`;
+  return `<div class="cg">${greet}${first ? ", " + esc(first) : ""}</div><div class="cd">${now.toLocaleDateString("en-PH", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div><div class="ct num">${now.toLocaleTimeString("en-PH", { timeZone: TZ, hour: "numeric", minute: "2-digit" })}</div>${alertsBtn()}`;
 }
 function renderClock() { const c = $("#clockbar"); if (!c) return; const locked = document.body.classList.contains("locked"); c.hidden = locked; if (!locked) { const h = clockHTML(); if (c.innerHTML !== h) c.innerHTML = h; } }
 setInterval(() => { renderClock(); checkReminders(); }, 10000);
@@ -622,7 +625,35 @@ function chime() {
   try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch { }
 }
 const alertsSupported = () => "Notification" in window;
-async function enableAlerts() { unlockAudio(); if (!alertsSupported()) { toast("Reminders will pop up on this screen while the site is open."); return; } const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts are on for this device" : "Alerts are off. Reminders still pop up on this screen."); render(); }
+let pushState = null;
+function refreshPush() { if (SITE && SITE.push) SITE.push.status().then(st => { if (st !== pushState) { pushState = st; renderClock(); } }).catch(() => { }); }
+function alertsBtn() {
+  if (SITE && SITE.push) {
+    if (pushState == null) { pushState = "checking"; refreshPush(); return ""; }
+    if (pushState === "on") return `<button type="button" class="alerts on" data-act="alertsOff" title="Phone alerts are on for this device">${BELL}Alerts on</button>`;
+    if (pushState === "off") return `<button type="button" class="alerts pri" data-act="alertsOn">${BELL}Turn on phone alerts</button>`;
+    if (pushState === "homescreen") return `<button type="button" class="alerts pri" data-act="alertsHow">${BELL}Get phone alerts</button>`;
+    if (pushState === "denied") return `<button type="button" class="alerts" data-act="alertsHow">${BELL}Alerts blocked</button>`;
+    return "";
+  }
+  return alertsSupported() && Notification.permission === "default" ? '<button type="button" class="alerts" data-act="alertsOn">Turn on booking alerts</button>' : "";
+}
+function alertsHow() {
+  const blocked = pushState === "denied";
+  openDialog(blocked ? "Alerts are blocked" : "Get booking alerts on your iPhone", blocked
+    ? `<p style="margin:0">This phone was told not to show alerts from B&amp;B Lounge. To allow them: open <b>Settings → Notifications → B&amp;B Lounge</b> and turn on <b>Allow Notifications</b>. On a computer, click the lock icon next to the web address and allow notifications.</p>`
+    : `<p style="margin:0">iPhones only show alerts for websites added to the Home Screen. It takes 20 seconds:</p>
+      <ol style="margin:0;padding-left:20px;line-height:1.7"><li>In Safari, tap the <b>Share</b> button (square with an arrow).</li><li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li><li>Close Safari and open <b>B&amp;B Lounge</b> from your Home Screen.</li><li>Sign in, then tap <b>Turn on phone alerts</b> at the top and choose <b>Allow</b>.</li></ol>
+      <p class="note" style="margin:0">After that you'll get an alert 30 minutes before each booking, even when the phone is locked.</p>`,
+    `<button type="button" class="btn primary" data-act="close">OK</button>`, null);
+}
+async function enableAlerts() {
+  if (SITE && SITE.push && pushState !== "unsupported") {
+    if (pushState === "homescreen" || pushState === "denied") { alertsHow(); return; }
+    try { toast("Turning on alerts…"); await SITE.push.enable(); pushState = "on"; renderClock(); toast("Phone alerts are on. You'll get an alert 30 minutes before each booking."); }
+    catch (e) { toast(e.message || String(e)); refreshPush(); }
+    return;
+  } unlockAudio(); if (!alertsSupported()) { toast("Reminders will pop up on this screen while the site is open."); return; } const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts are on for this device" : "Alerts are off. Reminders still pop up on this screen."); render(); }
 const BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 const remNotified = new Set();
 function dueReminders() {
@@ -1649,6 +1680,8 @@ document.addEventListener("click", async (ev) => {
       case "remOpen": remDismiss(S.bookings.find(x => x.id === id)); bookingDialog(find("bookings", id)); break;
       case "remOk": remDismiss(S.bookings.find(x => x.id === id)); checkReminders(); break;
       case "alertsOn": enableAlerts(); break;
+      case "alertsHow": alertsHow(); break;
+      case "alertsOff": if (confirm("Turn off booking alerts on this device?")) { await SITE.push.disable(); pushState = "off"; renderClock(); toast("Alerts turned off on this device"); } break;
       case "markDone": await S.db.doc("bookings/" + id).update({ status: "done", updatedAt: now() }); toast("Marked as done. Open it to record the payment."); break;
       case "delBooking": if (armed(b)) { await S.db.doc("bookings/" + id).delete(); closeDialog(); toast("Booking deleted"); } break;
       case "addLine": syncLines(); bkLines.push({ serviceId: "", name: "", qty: 1, price: "" }); drawLines(); break;
