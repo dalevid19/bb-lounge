@@ -106,3 +106,10 @@ drop policy if exists assets_owner_delete on storage.objects;
 create policy assets_owner_write  on storage.objects for insert with check (bucket_id = 'assets' and public.my_role() = 'owner');
 create policy assets_owner_update on storage.objects for update using (bucket_id = 'assets' and public.my_role() = 'owner');
 create policy assets_owner_delete on storage.objects for delete using (bucket_id = 'assets' and public.my_role() = 'owner');
+
+-- Signed-in staff may use the tables (row rules above still decide which rows); visitors who are not signed in get nothing.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.docs, public.profiles to authenticated;
+revoke all on public.docs, public.profiles from anon;
+grant execute on function public.my_role(), public.can_read(text,text), public.can_write(text,text), public.owner_add_profile(uuid,text,text,text,text), public.owner_set_password(uuid,text) to authenticated;
+revoke execute on function public.owner_add_profile(uuid,text,text,text,text), public.owner_set_password(uuid,text) from anon, public;
