@@ -50,7 +50,7 @@ img { max-width: 100%; }
 (() => {
   "use strict";
   const CFG = window.BB_CONFIG || {};
-  const sb = window.supabase.createClient(CFG.url, CFG.anonKey, { auth: { persistSession: true, autoRefreshToken: true }, realtime: { params: { eventsPerSecond: 20 } } });
+  const sb = window.supabase.createClient(CFG.url, CFG.anonKey, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "bb-auth", lock: async (_n, _t, fn) => await fn() }, realtime: { params: { eventsPerSecond: 20 } } });
   const emailOf = (u) => String(u || "").trim().toLowerCase() + "@staff.bblounge.app";
   const $ = (s) => document.querySelector(s);
 
@@ -62,11 +62,13 @@ img { max-width: 100%; }
     $("#bbLoginMsg").textContent = msg || "";
     setTimeout(() => { const u = $("#bbUser"); if (u && !u.value) u.focus(); }, 50);
   }
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+  let authing = false;
   async function afterAuth(session) {
     user = session.user;
-    const { data, error } = await sb.from("profiles").select("*").eq("user_id", user.id).maybeSingle();
-    if (error || !data) { await sb.auth.signOut(); showLogin("This account isn't set up yet. Ask the owner to add you."); return; }
-    if (!data.active) { await sb.auth.signOut(); showLogin("This account is blocked. Ask the owner."); return; }
+    const { data, error } = await withTimeout(sb.from("profiles").select("*").eq("user_id", user.id).maybeSingle(), 20000);
+    if (error || !data) { await sb.auth.signOut().catch(() => {}); showLogin("This account isn't set up yet. Ask the owner to add you."); return; }
+    if (!data.active) { await sb.auth.signOut().catch(() => {}); showLogin("This account is blocked. Ask the owner."); return; }
     profile = data;
     window.SITE.session = { id: data.user_id, name: data.name, role: data.role };
     $("#bbLogin").hidden = true;
@@ -75,13 +77,19 @@ img { max-width: 100%; }
   document.addEventListener("submit", async (ev) => {
     if (ev.target.id !== "bbLoginForm") return;
     ev.preventDefault();
+    if (authing) return; authing = true;
     const btn = $("#bbLoginBtn"); btn.disabled = true; $("#bbLoginMsg").textContent = "Signing in…";
-    const { data, error } = await sb.auth.signInWithPassword({ email: emailOf($("#bbUser").value), password: $("#bbPass").value });
-    btn.disabled = false;
-    if (error) { $("#bbLoginMsg").textContent = /invalid/i.test(error.message) ? "Wrong username or password." : error.message; $("#bbPass").value = ""; $("#bbPass").focus(); return; }
-    await afterAuth(data.session);
+    try {
+      const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email: emailOf($("#bbUser").value), password: $("#bbPass").value }), 20000);
+      if (error) { $("#bbLoginMsg").textContent = /invalid/i.test(error.message) ? "Wrong username or password." : error.message; $("#bbPass").value = ""; $("#bbPass").focus(); return; }
+      await afterAuth(data.session);
+    } catch (e) {
+      try { Object.keys(localStorage).filter(k => /^sb-|^bb-auth/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (_) {}
+      $("#bbLoginMsg").textContent = e.message === "timeout" ? "This is taking too long. Check your internet, then tap Sign in again." : "Couldn't sign in: " + e.message;
+    } finally { authing = false; btn.disabled = false; }
   });
-  sb.auth.getSession().then(({ data }) => { if (data.session) afterAuth(data.session); else showLogin(""); });
+  try { Object.keys(localStorage).filter(k => /^sb-.*-auth-token$/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (_) {}
+  withTimeout(sb.auth.getSession(), 10000).then(({ data }) => { if (data.session) return afterAuth(data.session); showLogin(""); }).catch(() => { try { localStorage.removeItem("bb-auth"); } catch (_) {} showLogin(""); });
 
   /* ---------- live document store (same shape the app already uses) ---------- */
   const cols = new Map(); // col -> { map: Map(id -> snapshot), subs: Set(cb), loaded }
