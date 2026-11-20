@@ -108,7 +108,7 @@ img { max-width: 100%; }
     if (error || !data) { await sb.auth.signOut().catch(() => {}); showLogin("This account isn't set up yet. Ask the owner to add you."); return; }
     if (!data.active) { await sb.auth.signOut().catch(() => {}); showLogin("This account is blocked. Ask the owner."); return; }
     profile = data;
-    window.SITE.session = { id: data.user_id, name: data.name, role: data.role };
+    window.SITE.session = { id: data.user_id, name: data.name, role: data.role, staff: data.staff_id || "" };
     $("#bbLogin").hidden = true;
     resolveReady();
   }
@@ -378,8 +378,29 @@ textarea { width: 100%; resize: vertical; }
 .appt:last-child { border-bottom: 0; }
 .appt .t { font-family: var(--f-mono); font-size: 13px; color: var(--accent); font-weight: 500; }
 .appt .c { min-width: 0; }
+.appt { grid-template-columns: 64px minmax(0, 1fr) !important; }
+.appt > .actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; margin-top: 2px; }
 .appt .c b { display: block; }
 .appt .c span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.trip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 99px; margin-top: 4px; }
+.trip.otw { background: color-mix(in srgb, #d97706 18%, var(--surface)); color: color-mix(in srgb, #b45309 85%, var(--ink)); }
+.trip.at { background: color-mix(in srgb, #16a34a 18%, var(--surface)); color: color-mix(in srgb, #15803d 85%, var(--ink)); }
+.trip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.trip.at i { animation: tripPulse 1.6s ease-in-out infinite; }
+@keyframes tripPulse { 50% { opacity: .3; } }
+.appt.soon { background: color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 10px; padding-left: 8px; padding-right: 8px; }
+.remind { position: fixed; z-index: 90; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 12px); width: min(560px, calc(100% - 24px)); display: grid; gap: 8px; }
+.remind .rc { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start; padding: 14px 16px; border-radius: 16px; background: var(--ink); color: var(--bg); box-shadow: 0 18px 40px -16px rgba(0,0,0,.55); animation: remIn .35s ease-out; }
+.remind .rb { width: 38px; height: 38px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; grid-row: span 2; animation: remRing 1.2s ease-in-out 3; }
+.remind .rb svg { width: 20px; height: 20px; }
+.remind .rt { font-weight: 700; font-size: 15px; }
+.remind .rd { font-size: 13px; opacity: .85; overflow-wrap: anywhere; }
+.remind .ra { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.remind .ra button { font: inherit; font-size: 13px; font-weight: 700; border: 0; border-radius: 99px; padding: 7px 14px; cursor: pointer; background: color-mix(in srgb, var(--bg) 16%, transparent); color: var(--bg); }
+.remind .ra button.pri { background: var(--accent); color: var(--accent-ink); }
+@keyframes remIn { from { transform: translateY(-14px); opacity: 0; } }
+@keyframes remRing { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } }
+.clockbar .alerts { font: inherit; font-size: 12px; font-weight: 700; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 5px 11px; cursor: pointer; }
 .dayhead { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; padding: 14px 0 2px; }
 .dayhead:first-child { padding-top: 0; }
 
@@ -589,6 +610,7 @@ body.locked .app { grid-template-columns: minmax(0, 1fr); }
 </div>
 <dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
 <div class="toast" id="toast" hidden></div>
+<div class="remind" id="remind" hidden role="alert"></div>
 
 <script>
 (() => {
@@ -820,17 +842,65 @@ function clockHTML() {
   const now = new Date(), hr = +now.toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
   const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
   const first = ui.session && ui.session.name ? ui.session.name.split(/[\s(]/)[0] : "";
-  return `<div class="cg">${greet}${first ? ", " + esc(first) : ""}</div><div class="cd">${now.toLocaleDateString("en-PH", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div><div class="ct num">${now.toLocaleTimeString("en-PH", { timeZone: TZ, hour: "numeric", minute: "2-digit" })}</div>`;
+  return `<div class="cg">${greet}${first ? ", " + esc(first) : ""}</div><div class="cd">${now.toLocaleDateString("en-PH", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div><div class="ct num">${now.toLocaleTimeString("en-PH", { timeZone: TZ, hour: "numeric", minute: "2-digit" })}</div>${alertsSupported() && Notification.permission === "default" ? '<button type="button" class="alerts" data-act="alertsOn">Turn on booking alerts</button>' : ""}`;
 }
 function renderClock() { const c = $("#clockbar"); if (!c) return; const locked = document.body.classList.contains("locked"); c.hidden = locked; if (!locked) { const h = clockHTML(); if (c.innerHTML !== h) c.innerHTML = h; } }
-setInterval(renderClock, 10000);
+setInterval(() => { renderClock(); checkReminders(); }, 10000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { renderClock(); checkReminders(); } });
+
+/* ---------- 30-minute booking reminders ---------- */
+const REM_MIN = 30;
+const remKey = (b) => `bb-rem-${b.id}-${b.date}-${b.time}`;
+const remSeen = new Set();
+const remIsDismissed = (b) => { const k = remKey(b); if (remSeen.has(k)) return true; try { return localStorage.getItem(k) === "1"; } catch { return false; } };
+function remDismiss(b) { if (!b) return; const k = remKey(b); remSeen.add(k); try { localStorage.setItem(k, "1"); } catch { } }
+let audioCtx = null;
+function unlockAudio() { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === "suspended") audioCtx.resume(); } catch { } }
+document.addEventListener("pointerdown", unlockAudio, { once: true, capture: true });
+function chime() {
+  try { unlockAudio(); const c = audioCtx; if (!c) return; [0, .28, .56].forEach((t, i) => { const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.value = i === 2 ? 1046 : 880; g.gain.setValueAtTime(0, c.currentTime + t); g.gain.linearRampToValueAtTime(.25, c.currentTime + t + .02); g.gain.exponentialRampToValueAtTime(.001, c.currentTime + t + .25); o.connect(g).connect(c.destination); o.start(c.currentTime + t); o.stop(c.currentTime + t + .26); }); } catch { }
+  try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch { }
+}
+const alertsSupported = () => "Notification" in window;
+async function enableAlerts() { unlockAudio(); if (!alertsSupported()) { toast("Reminders will pop up on this screen while the site is open."); return; } const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts are on for this device" : "Alerts are off. Reminders still pop up on this screen."); render(); }
+const BELL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
+const remNotified = new Set();
+function dueReminders() {
+  if (!S.userReady || !S.bookings) return [];
+  const mine = role() === "staff" ? (ui.session && ui.session.staff) : null;
+  if (role() === "staff" && !mine) return [];
+  const nowMs = Date.now();
+  return S.bookings.filter(b => {
+    if (b.status !== "booked" || b.trip === "arrived") return false;
+    if (mine && !hasTech(b, mine)) return false;
+    const st = startOf(b); if (!st) return false;
+    const mins = (st - nowMs) / 60000; return mins <= REM_MIN && mins > -15 && !remIsDismissed(b);
+  }).sort(byWhenAsc);
+}
+function checkReminders() {
+  const el = $("#remind"); if (!el) return;
+  const list = document.body.classList.contains("locked") ? [] : dueReminders();
+  if (!list.length) { el.hidden = true; el.innerHTML = ""; return; }
+  let fresh = false;
+  el.innerHTML = list.slice(0, 3).map(b => {
+    const mins = Math.round((startOf(b) - Date.now()) / 60000);
+    const when = mins > 1 ? `in ${mins} minutes` : mins >= -1 ? "now" : `${-mins} minutes ago`;
+    const title = `${b.client || "Client"} · ${fmtTime(b.time)} (${when})`;
+    const body = `${techName(b)}${b.trip === "otw" ? " is on the way" : ""} · ${svcSummary(b)}${b.address ? " · " + b.address.split(/\n/)[0].slice(0, 70) : ""}`;
+    if (!remNotified.has(remKey(b))) { remNotified.add(remKey(b)); fresh = true; try { if (alertsSupported() && Notification.permission === "granted") new Notification("Booking " + (mins > 1 ? `in ${mins} min` : "now") + ": " + (b.client || "Client"), { body: fmtTime(b.time) + " · " + body, tag: remKey(b), icon: "icon-192.png" }); } catch { } }
+    return `<div class="rc"><span class="rb">${BELL}</span><div class="rt">${esc(title)}</div><div class="rd">${esc(body)}</div>
+      <div class="ra">${b.status === "booked" && b.trip !== "otw" ? `<button type="button" data-act="trip" data-k="otw" data-id="${b.id}">On the way</button>` : ""}<button type="button" data-act="trip" data-k="arrived" data-id="${b.id}">At client</button><button type="button" data-act="remOpen" data-id="${b.id}">Open</button><button type="button" class="pri" data-act="remOk" data-id="${b.id}">OK, got it</button></div></div>`;
+  }).join("");
+  el.hidden = false;
+  if (fresh) chime();
+}
 function render() {
   const locked = !!S.db && (!S.loaded.logins || (lockOn() && !ui.session));
   document.body.classList.toggle("locked", locked);
   renderMobile(locked);
   if (locked) { closeDialog(); $("#main").innerHTML = S.loaded.logins ? lockScreen() : `<div class="lock"><p class="sub">${S.offline ? esc(S.offline) : "Opening…"}</p></div>`; const pi = $("#pinIn"); if (pi && !pi.disabled) pi.focus(); return; }
   if (S.userReady && !canSee(ui.view)) ui.view = homeView();
-  renderNav(); renderTopbar(); renderClock();
+  renderNav(); renderTopbar(); renderClock(); checkReminders();
   $("#bizName").textContent = S.settings.name || "B&B Lounge";
   $("#bizTag").textContent = S.settings.tagline || "At your own place";
   for (const id of ["#bizLogo", "#mLogo"]) { const im = $(id); if (S.settings.logoUrl) { if (im.getAttribute("src") !== S.settings.logoUrl) im.src = S.settings.logoUrl; im.alt = (S.settings.name || "B&B Lounge") + " logo"; im.hidden = false; } else im.hidden = true; }
@@ -884,7 +954,7 @@ function vOverview() {
   let html = head("Overview", esc(S.settings.name || "B&B Lounge"), `${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
   if (!S.bookings.length && !loading()) html += `<div class="panel" style="margin-bottom:16px"><div class="empty"><b>No bookings yet</b>Add your first booking to see your numbers here.<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   html += `<div class="today">
-    <div><div class="l">Today</div><div class="big">${todays.length ? `${todays.length} appointment${todays.length === 1 ? "" : "s"}` : "No appointments yet"}</div><div class="h">${todays.filter(isDone).length} done · ${todays.filter(b => b.status === "booked").length} still to go</div></div>
+    <div><div class="l">Today</div><div class="big">${todays.length ? `${todays.length} appointment${todays.length === 1 ? "" : "s"}` : "No appointments yet"}</div><div class="h">${todays.filter(isDone).length} done · ${todays.filter(b => b.status === "booked").length} still to go${todays.some(b => b.status === "booked" && b.trip === "arrived") ? ` · <b>${todays.filter(b => b.status === "booked" && b.trip === "arrived").length} at client now</b>` : ""}</div></div>
     <div><div class="l">Sales today</div><div class="v">${money(todaySales)}</div><div class="h">With transpo</div></div>
     <div><div class="l">This week</div><div class="v">${money(wkDone.reduce((a, b) => a + overall(b), 0))}</div><div class="h">${wkDone.length} clients · ${fmtDate(wk[0], { month: "short", day: "numeric" })} – ${fmtDate(wk[1], { month: "short", day: "numeric" })}</div></div>
     <div><div class="l">Next appointment</div>${next ? `<div class="v" style="font-size:16px">${next.date === t ? "" : fmtDay(next.date) + " · "}${fmtTime(next.time) || "Time not set"}</div><div class="h">${esc(next.client || "Client")} · ${esc(techName(next))}</div>` : `<div class="v" style="font-size:16px">None booked</div>`}</div>
@@ -935,13 +1005,20 @@ function niceStep(x) { if (x <= 0) return 1; const p = Math.pow(10, Math.floor(M
 const shortN = (v) => v >= 1e6 ? (v / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : v >= 1e3 ? (v / 1e3).toFixed(1).replace(/\.0$/, "") + "k" : String(Math.round(v));
 const byWhenAsc = (a, b) => (a.date || "").localeCompare(b.date || "") || (a.time || "").localeCompare(b.time || "");
 const byWhenDesc = (a, b) => byWhenAsc(b, a);
+const startOf = (b) => { if (!b.date || !b.time) return null; const d = parseD(b.date), [h, m] = String(b.time).split(":").map(Number); if (isNaN(d) || isNaN(h)) return null; d.setHours(h, m || 0, 0, 0); return d; };
+const clock = (isoT) => isoT ? new Date(isoT).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "";
+const tripPill = (b) => b.trip === "arrived" ? `<span class="trip at"><i></i>At client since ${clock(b.arrivedAt)}</span>` : b.trip === "otw" ? `<span class="trip otw"><i></i>On the way · left ${clock(b.otwAt)}</span>` : "";
+const tripBtns = (b) => b.status !== "booked" ? "" : b.trip === "arrived" ? `<button class="btn sm ghost" data-act="trip" data-k="" data-id="${b.id}" title="Clear the arrival status">Undo</button>`
+  : `${b.trip === "otw" ? "" : `<button class="btn sm" data-act="trip" data-k="otw" data-id="${b.id}">On the way</button>`}<button class="btn sm" data-act="trip" data-k="arrived" data-id="${b.id}">At client</button>`;
 function apptList(list, emptyMsg) {
   if (!list.length) return `<div class="note">${emptyMsg}</div>`;
   let html = "", day = "";
+  const nowMs = Date.now();
   list.forEach(b => {
     if (b.date !== day) { day = b.date; html += `<div class="dayhead">${b.date === todayStr() ? "Today · " : ""}${fmtDay(b.date)}</div>`; }
-    html += `<div class="appt"><div class="t">${fmtTime(b.time) || "—"}</div><div class="c"><b>${esc(b.client || "Client")}</b><span>${esc(svcSummary(b))} · ${esc(techName(b))}${b.address ? " · " + esc(b.address.split(/\n/)[0].slice(0, 60)) : ""}</span></div>
-      <div class="actions"><button class="btn sm" data-act="markDone" data-id="${b.id}">Done</button><button class="btn sm ghost" data-act="editBooking" data-id="${b.id}">Open</button></div></div>`;
+    const st = startOf(b), mins = st ? Math.round((st - nowMs) / 60000) : null, soon = b.status === "booked" && mins != null && mins <= 30 && mins >= -60;
+    html += `<div class="appt${soon ? " soon" : ""}"><div class="t">${fmtTime(b.time) || "—"}${soon && !b.trip ? `<div class="meta" style="color:var(--warn);font-weight:700">${mins > 0 ? "in " + mins + " min" : "now"}</div>` : ""}</div><div class="c"><b>${esc(b.client || "Client")}</b><span>${esc(svcSummary(b))} · ${esc(techName(b))}${b.address ? " · " + esc(b.address.split(/\n/)[0].slice(0, 60)) : ""}</span>${tripPill(b) ? `<div>${tripPill(b)}</div>` : ""}</div>
+      <div class="actions">${tripBtns(b)}<button class="btn sm" data-act="markDone" data-id="${b.id}">Done</button><button class="btn sm ghost" data-act="editBooking" data-id="${b.id}">Open</button></div></div>`;
   });
   return html;
 }
@@ -1805,6 +1882,13 @@ document.addEventListener("click", async (ev) => {
       }
       case "editBooking": bookingDialog(find("bookings", id)); break;
       case "bookAgain": { const c = clientList().find(x => x.key === k); bookingDialog(null, { client: c.name, phone: c.phone, address: c.address, date: todayStr() }); break; }
+      case "trip": { const k = b.dataset.k, bk = S.bookings.find(x => x.id === id); if (!bk) break;
+        const upd = k === "otw" ? { trip: "otw", otwAt: now() } : k === "arrived" ? { trip: "arrived", arrivedAt: now(), otwAt: bk.otwAt || "" } : { trip: "", arrivedAt: "", otwAt: "" };
+        await S.db.doc("bookings/" + id).update({ ...upd, updatedAt: now() }); remDismiss(bk);
+        toast(k === "otw" ? `${techName(bk)} is on the way to ${bk.client || "the client"}` : k === "arrived" ? `${techName(bk)} is at ${bk.client || "the client"}` : "Arrival status cleared"); break; }
+      case "remOpen": remDismiss(S.bookings.find(x => x.id === id)); bookingDialog(find("bookings", id)); break;
+      case "remOk": remDismiss(S.bookings.find(x => x.id === id)); checkReminders(); break;
+      case "alertsOn": enableAlerts(); break;
       case "markDone": await S.db.doc("bookings/" + id).update({ status: "done", updatedAt: now() }); toast("Marked as done. Open it to record the payment."); break;
       case "delBooking": if (armed(b)) { await S.db.doc("bookings/" + id).delete(); closeDialog(); toast("Booking deleted"); } break;
       case "addLine": syncLines(); bkLines.push({ serviceId: "", name: "", qty: 1, price: "" }); drawLines(); break;

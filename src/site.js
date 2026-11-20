@@ -24,7 +24,7 @@
     if (error || !data) { await sb.auth.signOut().catch(() => {}); showLogin("This account isn't set up yet. Ask the owner to add you."); return; }
     if (!data.active) { await sb.auth.signOut().catch(() => {}); showLogin("This account is blocked. Ask the owner."); return; }
     profile = data;
-    window.SITE.session = { id: data.user_id, name: data.name, role: data.role };
+    window.SITE.session = { id: data.user_id, name: data.name, role: data.role, staff: data.staff_id || "" };
     $("#bbLogin").hidden = true;
     resolveReady();
   }
