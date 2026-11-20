@@ -4,6 +4,7 @@
   "use strict";
   const CFG = window.BB_CONFIG || {};
   const sb = window.supabase.createClient(CFG.url, CFG.anonKey, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "bb-auth", lock: async (_n, _t, fn) => await fn() }, realtime: { params: { eventsPerSecond: 20 } } });
+  const pinPw = (v) => /^\d{6}$/.test(String(v || "").trim()) ? "bb-pin-" + String(v).trim() : String(v || "");
   const emailOf = (u) => String(u || "").trim().toLowerCase() + "@staff.bblounge.app";
   const $ = (s) => document.querySelector(s);
 
@@ -33,8 +34,8 @@
     if (authing) return; authing = true;
     const btn = $("#bbLoginBtn"); btn.disabled = true; $("#bbLoginMsg").textContent = "Signing in…";
     try {
-      const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email: emailOf($("#bbUser").value), password: $("#bbPass").value }), 20000);
-      if (error) { $("#bbLoginMsg").textContent = /invalid/i.test(error.message) ? "Wrong username or password." : error.message; $("#bbPass").value = ""; $("#bbPass").focus(); return; }
+      const { data, error } = await withTimeout(sb.auth.signInWithPassword({ email: emailOf($("#bbUser").value), password: pinPw($("#bbPass").value) }), 20000);
+      if (error) { $("#bbLoginMsg").textContent = /invalid/i.test(error.message) ? "Wrong username or PIN." : error.message; $("#bbPass").value = ""; $("#bbPass").focus(); return; }
       await afterAuth(data.session);
     } catch (e) {
       try { Object.keys(localStorage).filter(k => /^sb-|^bb-auth/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (_) {}
@@ -44,6 +45,11 @@
   try { Object.keys(localStorage).filter(k => /^sb-.*-auth-token$/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (_) {}
   withTimeout(sb.auth.getSession(), 10000).then(({ data }) => { if (data.session) return afterAuth(data.session); showLogin(""); }).catch(() => { try { localStorage.removeItem("bb-auth"); } catch (_) {} showLogin(""); });
 
+  document.addEventListener("click", (ev) => {
+    const e = ev.target.closest("#bbEye"); if (!e) return; ev.preventDefault();
+    const i = $("#bbPass"), show = i.type === "password"; i.type = show ? "text" : "password";
+    e.textContent = show ? "Hide" : "Show"; e.setAttribute("aria-pressed", show); e.setAttribute("aria-label", show ? "Hide PIN" : "Show PIN");
+  });
   /* ---------- live document store (same shape the app already uses) ---------- */
   const cols = new Map(); // col -> { map: Map(id -> snapshot), subs: Set(cb), loaded }
   const freeze = (o) => { if (o && typeof o === "object") { Object.values(o).forEach(freeze); Object.freeze(o); } return o; };
@@ -132,14 +138,14 @@
     signOut: async () => { await sb.auth.signOut(); location.reload(); },
     async listAccounts() { const { data, error } = await sb.from("profiles").select("*"); if (error) throw err(error); return data; },
     async createAccount({ username, password, name, role, staff_id }) {
-      const { data, error } = await helper.auth.signUp({ email: emailOf(username), password });
+      const { data, error } = await helper.auth.signUp({ email: emailOf(username), password: pinPw(password) });
       if (error) throw new Error(/registered|exists/i.test(error.message) ? "That username is already taken." : error.message);
       const { error: e2 } = await sb.rpc("owner_add_profile", { p_user: data.user.id, p_username: username, p_name: name, p_role: role, p_staff: staff_id || "" });
       if (e2) throw err(e2);
     },
     async updateAccount(uid, d) { const { error } = await sb.from("profiles").update({ name: d.name, role: d.role, staff_id: d.staff_id || "", active: d.active }).eq("user_id", uid); if (error) throw err(error); },
-    async setPassword(uid, pw) { const { error } = await sb.rpc("owner_set_password", { p_user: uid, p_password: pw }); if (error) throw err(error); },
-    async changeMyPassword(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw err(error); }
+    async setPassword(uid, pw) { const { error } = await sb.rpc("owner_set_password", { p_user: uid, p_password: pinPw(pw) }); if (error) throw err(error); },
+    async changeMyPassword(pw) { const { error } = await sb.auth.updateUser({ password: pinPw(pw) }); if (error) throw err(error); }
   };
 
   /* ---------- what the app asks for ---------- */
