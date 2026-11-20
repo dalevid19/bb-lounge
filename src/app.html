@@ -173,6 +173,16 @@ tr.grp td .gs { float: right; font-family: var(--f-mono); font-weight: 500; }
 tr.grp:hover { background: none; }
 .today { display: grid; grid-template-columns: 1.3fr repeat(3, minmax(0, 1fr)); gap: 0; background: var(--accent); color: var(--accent-ink); border-radius: var(--r); overflow: hidden; margin-bottom: 16px; }
 .today > div { padding: 16px 18px; min-width: 0; }
+.today { background: transparent; }
+.today > div:nth-child(odd) { background: var(--accent); color: var(--accent-ink); }
+.today > div:nth-child(even) { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--ink); }
+.today > div + div { border-left: 0 !important; border-top: 0 !important; }
+.clockbar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 12px max(28px, env(safe-area-inset-right, 0px)) 0 max(28px, env(safe-area-inset-left, 0px)); }
+.clockbar .cg { font-family: var(--f-display); font-size: 20px; font-weight: 700; color: var(--accent); }
+.clockbar .cd { color: var(--muted); font-weight: 600; }
+.clockbar .ct { margin-left: auto; font-family: var(--f-mono); font-size: 18px; font-weight: 600; color: var(--ink); background: var(--accent-soft); padding: 4px 12px; border-radius: 99px; }
+@media (max-width: 1150px) { .today > div:nth-child(3) { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--ink); } .today > div:nth-child(4) { background: var(--accent); color: var(--accent-ink); } }
+@media (max-width: 860px) { .clockbar { padding: 12px max(14px, env(safe-area-inset-right, 0px)) 0 max(14px, env(safe-area-inset-left, 0px)); gap: 2px 10px; } .clockbar .cg { font-size: 18px; flex-basis: 100%; } .clockbar .ct { font-size: 15px; padding: 3px 10px; } }
 .today > div + div { border-left: 1px solid color-mix(in srgb, var(--accent-ink) 22%, transparent); }
 .today .big { font-family: var(--f-display); font-size: 22px; font-weight: 700; line-height: 1.15; }
 .today .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .8; font-weight: 700; }
@@ -335,7 +345,7 @@ body.locked .app { grid-template-columns: minmax(0, 1fr); }
     <nav class="nav" id="nav"></nav>
     <div class="foot" id="syncNote">Connecting…</div>
   </aside>
-  <div class="col"><div class="topbar" id="topbar"></div><main id="main"></main></div>
+  <div class="col"><div class="topbar" id="topbar"></div><div class="clockbar" id="clockbar" aria-live="off"></div><main id="main"></main></div>
 </div>
 <dialog id="dlg"><form id="dlgForm" method="dialog"></form></dialog>
 <div class="toast" id="toast" hidden></div>
@@ -565,13 +575,22 @@ function labelTables(root) {
     t.querySelectorAll("tbody tr:not(.grp)").forEach(tr => { let c = 0; [...tr.children].forEach(td => { td.setAttribute("data-label", hs[c] || ""); if (!td.textContent.trim() && !td.querySelector("input, select, button, img, svg")) td.classList.add("blank"); c += td.colSpan || 1; }); });
   });
 }
+const TZ = "Asia/Manila";
+function clockHTML() {
+  const now = new Date(), hr = +now.toLocaleString("en-US", { timeZone: TZ, hour: "numeric", hourCycle: "h23" });
+  const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+  const first = ui.session && ui.session.name ? ui.session.name.split(/[\s(]/)[0] : "";
+  return `<div class="cg">${greet}${first ? ", " + esc(first) : ""}</div><div class="cd">${now.toLocaleDateString("en-PH", { timeZone: TZ, weekday: "long", month: "long", day: "numeric", year: "numeric" })}</div><div class="ct num">${now.toLocaleTimeString("en-PH", { timeZone: TZ, hour: "numeric", minute: "2-digit" })}</div>`;
+}
+function renderClock() { const c = $("#clockbar"); if (!c) return; const locked = document.body.classList.contains("locked"); c.hidden = locked; if (!locked) { const h = clockHTML(); if (c.innerHTML !== h) c.innerHTML = h; } }
+setInterval(renderClock, 10000);
 function render() {
   const locked = !!S.db && (!S.loaded.logins || (lockOn() && !ui.session));
   document.body.classList.toggle("locked", locked);
   renderMobile(locked);
   if (locked) { closeDialog(); $("#main").innerHTML = S.loaded.logins ? lockScreen() : `<div class="lock"><p class="sub">${S.offline ? esc(S.offline) : "Opening…"}</p></div>`; const pi = $("#pinIn"); if (pi && !pi.disabled) pi.focus(); return; }
   if (S.userReady && !canSee(ui.view)) ui.view = homeView();
-  renderNav(); renderTopbar();
+  renderNav(); renderTopbar(); renderClock();
   $("#bizName").textContent = S.settings.name || "B&B Lounge";
   $("#bizTag").textContent = S.settings.tagline || "At your own place";
   for (const id of ["#bizLogo", "#mLogo"]) { const im = $(id); if (S.settings.logoUrl) { if (im.getAttribute("src") !== S.settings.logoUrl) im.src = S.settings.logoUrl; im.alt = (S.settings.name || "B&B Lounge") + " logo"; im.hidden = false; } else im.hidden = true; }
@@ -622,7 +641,7 @@ function vOverview() {
   const upcoming = S.bookings.filter(b => b.status === "booked" && b.date >= t).sort(byWhenAsc);
   const next = upcoming.find(b => b.date > t || !b.time || b.time >= new Date().toTimeString().slice(0, 5));
   const wk = periodRange("week"), wkDone = S.bookings.filter(b => isDone(b) && inR(b.date, wk));
-  let html = head(`${hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}`, `${new Date().toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${esc(S.settings.name || "B&B Lounge")}`, `${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
+  let html = head("Overview", esc(S.settings.name || "B&B Lounge"), `${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
   if (!S.bookings.length && !loading()) html += `<div class="panel" style="margin-bottom:16px"><div class="empty"><b>No bookings yet</b>Add your first booking to see your numbers here.<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   html += `<div class="today">
     <div><div class="l">Today</div><div class="big">${todays.length ? `${todays.length} appointment${todays.length === 1 ? "" : "s"}` : "No appointments yet"}</div><div class="h">${todays.filter(isDone).length} done · ${todays.filter(b => b.status === "booked").length} still to go</div></div>
@@ -1924,7 +1943,8 @@ async function boot() {
   S.downloads = downloads; S.sample = sample; S.assets = assets;
   if (user) { try { S.canEdit = await user.canEdit(); S._canPay = S.canEdit; S.isOwner = await user.isOwner(); S.uid = (await user.id()) || ""; } catch {} }
   if (SITE) ui.session = SITE.session;
-  S.userReady = true; route();
+  S.userReady = true;
+  if (SITE) { try { history.replaceState(null, "", location.pathname + location.search + "#" + homeView()); } catch { } route(homeView()); } else route();
   if (!db) { clearTimeout(timer); S.offline = "Sign in to claude.ai to open the salon's records."; $("#syncNote").textContent = "Not connected"; render(); return; }
   S.rawDb = db; S.db = auditedDb(db);
   if (S.isOwner) db.collection("audit").onSnapshot(async snap => {
