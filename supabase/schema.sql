@@ -113,3 +113,17 @@ grant select, insert, update, delete on public.docs, public.profiles to authenti
 revoke all on public.docs, public.profiles from anon;
 grant execute on function public.my_role(), public.can_read(text,text), public.can_write(text,text), public.owner_add_profile(uuid,text,text,text,text), public.owner_set_password(uuid,text) to authenticated;
 revoke execute on function public.owner_add_profile(uuid,text,text,text,text), public.owner_set_password(uuid,text) from anon, public;
+
+-- Only the owner may change PINs: HR and staff cannot change their own (the owner sets them with owner_set_password).
+create or replace function public.guard_pin_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.encrypted_password is distinct from old.encrypted_password
+     and session_user = 'supabase_auth_admin'
+     and coalesce((select role from public.profiles where user_id = new.id), '') <> 'owner' then
+    raise exception 'Only the owner can change PINs';
+  end if;
+  return new;
+end $$;
+drop trigger if exists guard_pin_change on auth.users;
+create trigger guard_pin_change before update on auth.users for each row execute function public.guard_pin_change();
