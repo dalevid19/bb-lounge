@@ -447,11 +447,10 @@ function clientHistory(name, phone, excludeId) {
   return S.bookings.filter(b => b.id !== excludeId && b.status === "done" && ((ph && String(b.phone || "").replace(/\D/g, "").slice(-10) === ph) || (!ph && nm && String(b.client || "").trim().toLowerCase() === nm))).sort(byWhenAsc);
 }
 const overall = (b) => svcTotal(b) + num(b.transpo);
-// Tips: "gcash"/"bdo" = paid online together with the bill (counted in that payment; the salon pays it to the tech in payroll).
-// "cash" = handed straight to the tech (they keep it). Older bookings without a method keep the old rule: paid out in payroll, not part of the bill.
+// Tips: "gcash"/"bdo" = paid online together with the bill (counted in that payment, then handed to the tech separately).
+// "cash" = handed straight to the tech. Tips are never part of payroll. Older bookings without a method aren't counted in the bill.
 const TIP_VIA = [["gcash", "GCash (with the payment)"], ["bdo", "BDO (with the payment)"], ["cash", "Cash, kept by the tech"]];
 const tipOnline = (b) => b.tipVia === "gcash" || b.tipVia === "bdo" ? num(b.tip) : 0;
-const tipPayroll = (b) => b.tipVia === "cash" ? 0 : num(b.tip);
 const amountDue = (b) => overall(b) + tipOnline(b);
 const trSplit = (b) => (b.transpoGo != null || b.transpoBack != null) ? [num(b.transpoGo), num(b.transpoBack)] : [num(b.transpo), null];
 const trCell = (b) => { const [g, r] = trSplit(b); return `${money(b.transpo)}${r != null && (g || r) ? `<div class="meta">Going ${money(g)} · Return ${money(r)}</div>` : ""}`; };
@@ -865,7 +864,7 @@ function weekly() {
   const done = S.bookings.filter(b => isDone(b) && wk(b.date));
   const sales = row("Service sales", w => done.filter(b => wk(b.date) === w).reduce((a, b) => a + svcTotal(b), 0));
   const trans = row("Transpo collected", w => done.filter(b => wk(b.date) === w).reduce((a, b) => a + num(b.transpo), 0));
-  const tips = row("Tips (paid out in payroll)", w => done.filter(b => wk(b.date) === w).reduce((a, b) => a + tipPayroll(b), 0));
+  const tips = row("Tips (given to technicians separately)", w => done.filter(b => wk(b.date) === w).reduce((a, b) => a + num(b.tip), 0));
   const runs = S.payroll.filter(p => wk(p.periodStart));
   const lineSum = (role) => (w) => runs.filter(p => wk(p.periodStart) === w).reduce((a, p) => a + (p.lines || []).filter(l => (role === "Admin") === (l.role === "Admin")).reduce((s, l) => s + num(l.net), 0), 0);
   const salT = row("Salary · technicians", lineSum("Technician")), salA = row("Salary · admin", lineSum("Admin"));
@@ -988,7 +987,7 @@ function vPayroll() {
   if (ui.payTab === "staff") return html + staffTable(true);
   if (ui.payTab === "runs") {
     const runs = [...S.payroll].sort((a, b) => (b.periodStart || "").localeCompare(a.periodStart || ""));
-    if (!runs.length) return html + `<div class="panel"><div class="empty"><b>No pay runs yet</b>Run payroll at the end of each week. Commission and tips are filled in from that week's completed bookings.</div></div>`;
+    if (!runs.length) return html + `<div class="panel"><div class="empty"><b>No pay runs yet</b>Run payroll at the end of each week. Commission is filled in from that week's completed bookings.</div></div>`;
     return html + `<div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Week</th><th class="n">Staff</th><th class="n">Basic</th><th class="n">OT</th><th class="n">Commission</th><th class="n">Deductions</th><th class="n">Take-home</th><th>Status</th><th></th></tr></thead><tbody>
       ${grouped(runs, p => weekInfo(p.periodStart).month, m => fmtDate(m + "-01", { month: "long", year: "numeric" }), 9, p => { const L = p.lines || [], s = k => L.reduce((a, l) => a + num(l[k]), 0); return `<tr><td>${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}<div class="meta">Week ${weekInfo(p.periodStart).n} of ${fmtDate(weekInfo(p.periodStart).month + "-01", { month: "long" })}</div></td><td class="n">${L.length}</td><td class="n">${money(s("basic"))}</td><td class="n">${money(s("otPay"))}</td><td class="n">${money(s("commission"))}</td><td class="n">${money(s("cashAdvance") + s("late") + L.reduce((a, l) => a + govOf(l), 0) - Math.min(0, L.reduce((a, l) => a + num(l.other), 0)))}</td><td class="n"><b>${money(p.totalNet)}</b></td>
       <td>${p.paid ? '<span class="pill ok">Paid</span>' : '<span class="pill low">Unpaid</span>'}</td><td class="act"><button class="btn sm ghost" data-act="viewRun" data-id="${p.id}">Payslips</button></td></tr>`; }, g => "Take-home " + money(g.reduce((a, p) => a + num(p.totalNet), 0)))}
@@ -1535,10 +1534,10 @@ function payrollDialog() {
   const cell = (n, v, lab) => `<td><input class="inp" name="${n}" type="number" step="any" min="0" value="${v}" aria-label="${lab}" style="min-width:70px"></td>`;
   openDialog("Weekly payroll", `
     <div class="fields"><label class="f">Week starts (${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][WS()]})<input class="inp" name="ps" type="date" required value="${start}"></label><label class="f">Week ends<input class="inp" name="pe" type="date" required value="${end}"></label></div>
-    <p class="note" style="margin:0">Commission and tips come from completed bookings in this week. Change anything before saving.</p>
+    <p class="note" style="margin:0">Commission comes from completed bookings in this week. Tips are not included; they are given to the technicians separately. Change anything before saving.</p>
     <div class="tbl-wrap"><table class="lines paylines"><thead><tr><th>Staff</th><th>Days</th><th>OT hrs</th><th>Commission</th><th>Tips</th><th>Cash adv. / backjob</th><th>Late / undertime</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th class="n">Take-home</th></tr></thead><tbody id="payLines">
       ${staff.map(s => { const p = payOf(s.id); return `<tr data-sid="${s.id}"><td style="white-space:nowrap"><b>${esc(s.name)}</b><div class="meta">${money(p.dailyRate)}/day · OT ${money(p.otRate)}/h</div></td>
-        ${cell("days", "", "Days worked")}${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}${cell("tips", 0, "Tips")}${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
+        ${cell("days", "", "Days worked")}${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
         <td class="n num" data-net>${money(0)}</td></tr>`; }).join("")}
     </tbody></table></div>
     <p class="note" style="margin:0">Pending backjobs for the week are filled into "Cash adv. / backjob" and marked deducted when you save. Use 0.5 for a half day. SSS, PhilHealth and Pag-IBIG here are the employee's share taken from pay; log the employer's share under Expenses.</p>`,
@@ -1555,7 +1554,7 @@ function payrollDialog() {
   fillPayAuto(); recalcPay();
 }
 function payLine(tr) {
-  const s = staffById(tr.dataset.sid) || {}, p = payOf(tr.dataset.sid), g = n => num(tr.querySelector(`[name="${n}"]`).value);
+  const s = staffById(tr.dataset.sid) || {}, p = payOf(tr.dataset.sid), g = n => { const el = tr.querySelector(`[name="${n}"]`); return el ? num(el.value) : 0; };
   const days = g("days"), otH = g("ot"), basic = r2(days * num(p.dailyRate)), otPay = r2(otH * num(p.otRate)), comm = g("comm"), tips = g("tips");
   const gross = r2(basic + otPay + comm + tips), l = { staffId: s.id, name: s.name, role: s.role || "Technician", dailyRate: num(p.dailyRate), otRate: num(p.otRate), days, otHours: otH, basic, otPay, commission: comm, tips, gross, cashAdvance: g("ca"), late: g("late"), sss: g("sss"), philhealth: g("ph"), pagibig: g("pi") };
   l.net = r2(gross - l.cashAdvance - l.late - govOf(l));
@@ -1566,7 +1565,6 @@ function fillPayAuto() {
   dform.querySelectorAll("#payLines tr").forEach(tr => {
     const sid = tr.dataset.sid, bk = S.bookings.filter(b => isDone(b) && hasTech(b, sid) && inR(b.date, r));
     tr.querySelector('[name="comm"]').value = r2(bk.reduce((a, b) => a + commissionFor(b, sid), 0));
-    tr.querySelector('[name="tips"]').value = r2(bk.reduce((a, b) => a + (b.techId === sid ? tipPayroll(b) : 0), 0));
     const days = new Set(bk.map(b => b.date)).size; const d = tr.querySelector('[name="days"]'); if (!d.value && days) d.value = days;
     const bj = pendingBackjobs(tr.dataset.sid, r).reduce((a, x) => a + num(x.amount), 0);
     tr.querySelector('[name="ca"]').value = bj ? r2(bj) : "";
