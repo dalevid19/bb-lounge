@@ -1201,7 +1201,7 @@ function vBookings() {
   let html = head("Bookings", ui.bkTab === "upcoming" ? `${rows.length} booked${overdue ? ` · <b style="color:var(--warn)">${overdue} past date, not marked done</b>` : ""}` : `${ui.tech ? esc((staffById(ui.tech) || {}).name || "") + " · " : ""}${r[2]} · ${rows.length} bookings · <span class="num">${money(totals.s + totals.t)}</span>`,
     `<button class="btn" data-act="export" data-k="bookings">Export CSV</button>${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
   html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">${tabs.map(([k, l]) => `<button type="button" data-act="bkTab" data-k="${k}" aria-pressed="${ui.bkTab === k}">${l}</button>`).join("")}</div>${ui.bkTab !== "upcoming" ? periodSeg() : ""}${techFilter()}</div><input type="search" id="bkQ" placeholder="Search client, number, tech, service" value="${esc(ui.bkQ)}" aria-label="Search bookings"></div>`;
-  if (!rows.length) return html + `<div class="empty"><b>${S.bookings.length ? "Nothing here" : "No bookings yet"}</b>${S.bookings.length ? "Try another tab, a wider period, or clear the search." : "Record your first client. Past dates are saved as completed; future dates go on the schedule."}<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
+  if (!rows.length) return html + `<div class="empty"><b>${S.bookings.length ? "Nothing here" : "No bookings yet"}</b>${S.bookings.length ? "Try another tab, a wider period, or clear the search." : "Record your first client. New bookings start as Booked; mark them done once the service is finished."}<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   if (ui.bkTab === "upcoming") return html + `<div class="pb">${apptList(rows, "")}</div></div>`;
   let zi = 0;
   html += `<div class="tbl-wrap"><table><thead><tr><th>Time</th><th>Client</th><th>Services</th><th>Tech</th><th class="n">Service</th><th class="n">Transpo</th><th class="n">Commission</th><th>Paid</th><th></th></tr></thead><tbody>
@@ -1833,7 +1833,7 @@ function bookingDialog(b, prefill, opts) {
   const isNew = !b; b = b || Object.assign({ date: todayStr(), items: [], pay: {}, transpo: 0, tip: 0 }, prefill || {});
   bkLines = (b.items && b.items.length ? b.items : [{ serviceId: "", name: "", qty: 1, price: "" }]).map(x => ({ ...x }));
   const techs = S.staff.filter(s => s.active !== false || s.id === b.techId).sort((a, c) => (a.role === "Admin") - (c.role === "Admin") || (a.name || "").localeCompare(c.name || ""));
-  const status = b.status || (b.date > todayStr() ? "booked" : "done");
+  const status = b.status || "booked"; // new bookings always start as booked; mark done by hand
   openDialog(isNew ? "New booking" : "Booking · " + (b.client || ""), `
     ${isNew ? `<details class="aibox" id="aiBox" ${opts.ai ? "open" : ""}><summary>Fill in from a Facebook message</summary>
       <p class="note" style="margin:0">Copy the client's Messenger message and paste it here. The app reads it and fills in the booking below: name, number, address, date and time, services, technician, visit and DP. Check everything before saving.</p>
@@ -2436,7 +2436,7 @@ function readMessage(text) {
 function applyRead(r, onlyEmpty) {
   const el = dform.elements, set = (n, v) => { if (v && el[n] && (!onlyEmpty || !String(el[n].value).trim())) el[n].value = v; };
   set("client", r.client); set("phone", r.phone); set("address", r.address); set("time", r.time);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(r.date || "") && (!onlyEmpty || !r._dateSet)) { el.date.value = r.date; el.status.value = r.date > todayStr() ? "booked" : "done"; }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(r.date || "") && (!onlyEmpty || !r._dateSet)) { el.date.value = r.date; }
   set("visit", r.visit); set("pastTechs", r.pastTechs);
   if (r.notes && r.notes.length) { const add = r.notes.filter(n => !String(el.notes.value).includes(n)); if (add.length) el.notes.value = [el.notes.value, ...add].filter(Boolean).join(" · "); }
   if (r.dp > 0) { el.dpPaid.value = "1"; el.dpAmount.disabled = false; el.dpMethod.disabled = false; el.dpAmount.value = r.dp; if (r.dpMethod) el.dpMethod.value = r.dpMethod; }
