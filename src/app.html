@@ -167,7 +167,12 @@ tr.zebra, tr.zebra > td { background: color-mix(in srgb, var(--ink) 6%, var(--su
 .mcard:first-child { border-left: 0; }
 .mcard[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); box-shadow: inset 0 -3px 0 var(--accent); }
 .mgrid td, .mgrid th { white-space: nowrap; }
+.tbl-wrap:has(> .mgrid) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mgrid th:first-child, .mgrid td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+.mgrid tr.total td:first-child, .mgrid thead th:first-child { background: color-mix(in srgb, var(--ink) 5%, var(--surface)); }
+@media (max-width: 860px) { .mgrid td, .mgrid th { padding: 8px 8px; font-size: 12px; } }
 .mday td, .mday th { white-space: nowrap; }
+.linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 @media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .pchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -1078,13 +1083,14 @@ function moneyEvents() {
     if (b.status === "done") ACCTS.forEach(([k]) => { const v = num((b.pay || {})[k]); if (v && !(k === "cash" && held)) ev.push({ date: b.date, acct: k, amt: v, type: "in", tech: mainTechName(b), label: b.client || "Client", ref: ["bookings", b.id] }); });
     if (b.dpPaid && b.status !== "cancelled" && num(b.dpAmount) && !(held && b.dpMethod === "cash" && b.dpWithTech)) { const k = b.dpMethod || "gcash"; ev.push({ date: b.dpDate || b.date, acct: k, amt: num(b.dpAmount), type: "in", tech: mainTechName(b), label: `${b.client || "Client"} (DP)`, ref: ["bookings", b.id] }); }
   });
-  S.expenses.forEach(e => { if (e.paidFrom && num(e.amount)) ev.push({ date: e.date, acct: e.paidFrom, amt: -num(e.amount), type: "out", label: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, ref: ["expenses", e.id] }); });
-  S.payroll.forEach(p => (p.lines || []).forEach(l => { if (linePaid(p, l) && l.paidFrom && num(l.net)) ev.push({ date: l.paidOn || p.periodEnd, acct: l.paidFrom, amt: -num(l.net), type: "out", label: `Salary · ${l.name} (${linePeriod(p, l)})`, ref: ["payroll", p.id] }); }));
+  S.expenses.forEach(e => { if (e.paidFrom && num(e.amount)) ev.push({ date: e.date, acct: e.paidFrom, amt: -num(e.amount), type: "out", cat: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, label: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, ref: ["expenses", e.id] }); });
+  S.payroll.forEach(p => (p.lines || []).forEach(l => { if (linePaid(p, l) && l.paidFrom && num(l.net)) ev.push({ date: l.paidOn || p.periodEnd, acct: l.paidFrom, amt: -num(l.net), type: "out", cat: `${(l.name || "").split(" ")[0]} salary`, label: `Salary · ${l.name} (${linePeriod(p, l)})`, ref: ["payroll", p.id] }); }));
   S.moneylog.forEach(m => {
     const a = num(m.amount); if (!a || m.kind === "check") return;
     const who = m.who ? ` · ${m.who}` : "";
     if (m.kind === "opening") { ev.push({ date: m.date, acct: m.to, amt: a, type: "open", label: "Starting balance", ref: ["moneylog", m.id] }); return; }
-    if (m.from) ev.push({ date: m.date, acct: m.from, amt: -a, type: "move", label: (m.to ? `Moved to ${acctName(m.to)}` : "Turned over / taken out") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
+    if (m.kind === "spend") { ev.push({ date: m.date, acct: m.from, amt: -a, type: "out", cat: m.category || "Others", label: (m.category || "Spending") + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] }); return; }
+    if (m.from) ev.push({ date: m.date, acct: m.from, amt: -a, type: "move", cat: m.to ? `To ${acctName(m.to)}` : `Turned over${m.who ? " · " + m.who : ""}`, label: (m.to ? `Moved to ${acctName(m.to)}` : "Turned over / taken out") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
     if (m.to) ev.push({ date: m.date, acct: m.to, amt: a, type: "move", label: (m.from ? `Moved from ${acctName(m.from)}` : "Money added") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
   });
   return ev;
@@ -1131,7 +1137,27 @@ function vMoney() {
   html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} out &amp; moved</h2><span class="note">Expenses and salaries paid from ${acctName(k)}, transfers and turnovers</span></div>${outs.length ? `<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>What</th><th class="n">Amount</th><th></th></tr></thead><tbody>
     ${outs.map(e => `<tr><td>${fmtDate(e.date, { weekday: "short", month: "short", day: "numeric" })}</td><td>${esc(e.label)}</td><td class="n ${e.amt < 0 ? "neg" : ""}">${e.amt < 0 ? "−" : "+"}${money(Math.abs(e.amt))}</td><td class="act">${e.ref[0] === "moneylog" ? `<button class="btn sm ghost" data-act="editMove" data-id="${e.ref[1]}">Edit</button>` : e.ref[0] === "expenses" ? `<button class="btn sm ghost" data-act="editExpense" data-id="${e.ref[1]}">Edit</button>` : `<button class="btn sm ghost" data-act="viewRun" data-id="${e.ref[1]}">Payslips</button>`}</td></tr>`).join("")}</tbody></table></div>`
     : `<div class="empty"><b>Nothing paid from ${acctName(k)} this week</b>Use "Add money out" for spending, or set "Paid from" on an expense. Salaries count here when you mark them paid from ${acctName(k)}.</div>`}</div>`;
+  const outEv = acctEv.filter(e => e.amt < 0), cats = [...new Set(outEv.map(e => e.cat || e.label))].sort((a, b) => a.localeCompare(b));
+  html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} expenses</h2><span class="note">Spending, salaries and money moved out of ${acctName(k)} · ${fmtDate(ws, { month: "short", day: "numeric" })} – ${fmtDate(we, { month: "short", day: "numeric" })}</span><button class="btn sm primary" data-act="addSpend">Add ${acctName(k)} expense</button></div>${outEv.length ? `<div class="tbl-wrap"><table class="mgrid keep"><thead><tr><th>Expense</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
+    ${cats.map(c => { const ce = outEv.filter(e => (e.cat || e.label) === c); return `<tr><td><b>${esc(c)}</b></td>${days.map(d => { const de = ce.filter(e => e.date === d), v = -de.reduce((s2, e) => s2 + e.amt, 0); return `<td class="n">${v ? `<button type="button" class="linkish" data-act="${de[0].ref[0] === "moneylog" ? "editMove" : de[0].ref[0] === "expenses" ? "editExpense" : "viewRun"}" data-id="${de[0].ref[1]}" title="${esc(de.map(e => e.label).join(", "))}">${money(v)}</button>` : ""}</td>`; }).join("")}<td class="n"><b>${money(-ce.reduce((s2, e) => s2 + e.amt, 0))}</b></td></tr>`; }).join("")}
+    <tr class="total"><td>Total</td>${days.map(d => `<td class="n">${money(-outEv.filter(e => e.date === d).reduce((s2, e) => s2 + e.amt, 0))}</td>`).join("")}<td class="n">${money(-outEv.reduce((s2, e) => s2 + e.amt, 0))}</td></tr></tbody></table></div>`
+    : `<div class="empty"><b>No ${acctName(k)} expenses this week</b>Tap "Add ${acctName(k)} expense" to record transpo, needs, salaries, loans and the rest paid from ${acctName(k)}.</div>`}</div>`;
   return html;
+}
+const SPEND_CATS = ["Transpo April", "Transpo Lea", "Transpo Judyann", "Lalamove Admin", "Needs B&B", "Admin Salary", "Rent", "Wifi", "Water", "Electricity", "Ads", "PhilHealth", "Pag-IBIG", "SSS", "Ma'am B Salary", "Loan Berna", "13th month", "Load BB", "Others"];
+function spendDialog(m) {
+  const isNew = !m || !m.id; m = m || { date: todayStr(), from: ui.mAcct || "gcash" };
+  const used = [...new Set([...SPEND_CATS, ...S.moneylog.filter(x => x.kind === "spend").map(x => x.category).filter(Boolean)])];
+  openDialog(isNew ? `Add ${acctName(m.from)} expense` : `Edit ${acctName(m.from)} expense`, `
+    <div class="fields"><label class="f">Date<input class="inp" name="date" type="date" required value="${esc(m.date)}"></label>
+    <label class="f">Paid from<select name="from">${ACCTS.map(([v, l]) => `<option value="${v}" ${m.from === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <div class="fields"><label class="f">Expense<input class="inp" name="category" required list="spendCats" value="${esc(m.category || "")}" placeholder="e.g. Transpo Lea, Needs B&amp;B"><datalist id="spendCats">${used.map(c => `<option value="${esc(c)}">`).join("")}</datalist></label>
+    <label class="f">Amount<input class="inp" name="amount" type="number" step="0.01" min="0" required value="${m.amount ?? ""}"></label></div>
+    <label class="f">Note<input class="inp" name="note" value="${esc(m.note || "")}" placeholder="Optional"></label>
+    <p class="note" style="margin:0">This takes the money out of the ${acctName(m.from)} balance here. To also count it in the Expenses tab (for net profit), add it there with "Paid from" set instead.</p>`,
+    footBtns(isNew, isNew ? "Add expense" : "Save changes", "delMove", m.id),
+    async () => { const d = { kind: "spend", date: fv("date"), from: fv("from"), to: "", category: fv("category"), amount: num(fv("amount")), note: fv("note"), updatedAt: now() };
+      if (isNew) await S.db.collection("moneylog").add({ ...d, createdAt: d.updatedAt }); else await S.db.doc("moneylog/" + m.id).update(d); toast("Saved"); });
 }
 function openingDialog(k) {
   const o = openingOf(k) || {};
@@ -1871,7 +1897,8 @@ document.addEventListener("click", async (ev) => {
       case "mMore": ui.mMore = 1; render(); break;
       case "mOpening": openingDialog(k); break;
       case "moveMoney": moveDialog(); break;
-      case "editMove": moveDialog(find("moneylog", id)); break;
+      case "editMove": { const mm = find("moneylog", id); if (mm && mm.kind === "spend") spendDialog(mm); else if (mm && mm.kind === "opening") openingDialog(mm.to); else moveDialog(mm); break; }
+      case "addSpend": spendDialog({ date: todayStr(), from: ui.mAcct || "gcash" }); break;
       case "delMove": if (armed(b)) { await S.db.doc("moneylog/" + id).delete(); closeDialog(); toast("Deleted"); } break;
       case "moneyOut": expenseDialog(null, ui.mAcct || "cash"); break;
       case "mCheck": { const cid = `chk-${ui.mAcct}-${k}`; if (isChecked(ui.mAcct, k)) await S.db.doc("moneylog/" + cid).delete(); else await S.db.doc("moneylog/" + cid).set({ kind: "check", acct: ui.mAcct, date: k, by: (ui.session && ui.session.name) || "", updatedAt: now() }); break; }
