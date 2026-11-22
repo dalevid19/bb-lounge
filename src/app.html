@@ -1066,8 +1066,10 @@ const mondayOf = (s) => { const d = parseD(s); return isNaN(d) ? "" : addDays(s,
 function moneyEvents() {
   const ev = [];
   S.bookings.forEach(b => {
-    if (b.status === "done") ACCTS.forEach(([k]) => { const v = num((b.pay || {})[k]); if (v) ev.push({ date: b.date, acct: k, amt: v, type: "in", tech: mainTechName(b), label: b.client || "Client", ref: ["bookings", b.id] }); });
-    if (b.dpPaid && b.status !== "cancelled" && num(b.dpAmount)) { const k = b.dpMethod || "gcash"; ev.push({ date: b.dpDate || b.date, acct: k, amt: num(b.dpAmount), type: "in", tech: mainTechName(b), label: `${b.client || "Client"} (DP)`, ref: ["bookings", b.id] }); }
+    const held = b.status === "done" && cashTracked(b) ? cashHeld(b) : 0; // cash the tech collected and hands over later
+    if (held) { if (b.cashRemitted) ev.push({ date: b.remittedOn || b.date, acct: "cash", amt: held, type: "in", tech: mainTechName(b), label: `${b.client || "Client"} (remitted, service ${fmtDate(b.date, { month: "short", day: "numeric" })})`, ref: ["bookings", b.id] }); }
+    if (b.status === "done") ACCTS.forEach(([k]) => { const v = num((b.pay || {})[k]); if (v && !(k === "cash" && held)) ev.push({ date: b.date, acct: k, amt: v, type: "in", tech: mainTechName(b), label: b.client || "Client", ref: ["bookings", b.id] }); });
+    if (b.dpPaid && b.status !== "cancelled" && num(b.dpAmount) && !(held && b.dpMethod === "cash" && b.dpWithTech)) { const k = b.dpMethod || "gcash"; ev.push({ date: b.dpDate || b.date, acct: k, amt: num(b.dpAmount), type: "in", tech: mainTechName(b), label: `${b.client || "Client"} (DP)`, ref: ["bookings", b.id] }); }
   });
   S.expenses.forEach(e => { if (e.paidFrom && num(e.amount)) ev.push({ date: e.date, acct: e.paidFrom, amt: -num(e.amount), type: "out", label: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, ref: ["expenses", e.id] }); });
   S.payroll.forEach(p => (p.lines || []).forEach(l => { if (linePaid(p, l) && l.paidFrom && num(l.net)) ev.push({ date: l.paidOn || p.periodEnd, acct: l.paidFrom, amt: -num(l.net), type: "out", label: `Salary · ${l.name} (${linePeriod(p, l)})`, ref: ["payroll", p.id] }); }));
@@ -1096,6 +1098,7 @@ function vMoney() {
     return `<button type="button" class="kpi mcard" data-act="mAcct" data-k="${a}" aria-pressed="${k === a}"><div class="l">${l}</div><div class="v ${bal < 0 ? "neg" : ""}">${bal == null ? '<span class="note" style="font-size:13px;font-family:inherit">Not set yet</span>' : money(bal)}</div><div class="h">${we < t ? "End of week" : "Now"}<br>In ${money(inn)}<br>Out ${money(out)}</div></button>`; }).join("")}</div>`;
   const op = openingOf(k);
   if (!op) html += `<div class="banner" style="margin-bottom:14px"><span><b>${acctName(k)}: starting balance not set.</b> Count the ${acctName(k)} money you have on a day, enter it once, and the running balance starts from there.</span><button class="btn sm primary" data-act="mOpening" data-k="${k}">Set starting balance</button></div>`;
+  if (k === "cash") { const pend = cashPending(); if (pend.length) html += `<a class="banner" href="#cash" style="text-decoration:none;margin-bottom:14px"><span><b class="num">${money(pend.reduce((a, b) => a + cashHeld(b), 0))}</b> cash still with technicians, not in this balance yet. It's added here on the day you mark it remitted in Cash on hand.</span><span class="btn sm">Cash on hand</span></a>`; }
   // daily summary
   const acctEv = wk.filter(e => e.acct === k);
   html += `<div class="panel"><div class="ph"><h2>${acctName(k)} · day by day</h2>${op ? `<span class="note">Starting balance ${money(op.amount)} on ${fmtDate(op.date, { month: "short", day: "numeric" })} · <button type="button" class="btn sm ghost" data-act="mOpening" data-k="${k}">Change</button></span>` : ""}</div>
@@ -1106,7 +1109,7 @@ function vMoney() {
       <tr class="total"><td>Week total</td><td class="n">${money(acctEv.filter(e => e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(-acctEv.filter(e => e.amt < 0).reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(acctEv.filter(e => e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${balanceAt(ev, k, we < t ? we : t) == null ? "—" : money(balanceAt(ev, k, we < t ? we : t))}</td><td></td></tr></tbody></table></div></div>`;
   // money in grid per technician
   const ins = acctEv.filter(e => e.type === "in"), techs = [...new Set(ins.map(e => e.tech))].sort();
-  html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} received</h2><span class="note">From bookings, by technician</span></div>${ins.length ? `<div class="tbl-wrap"><table class="mgrid"><thead><tr><th>Technician</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
+  html += `<div class="panel mt"><div class="ph"><h2>${k === "cash" ? "Cash received / remitted" : acctName(k) + " received"}</h2><span class="note">${k === "cash" ? "By the day the cash reached B&amp;B · by technician" : "From bookings, by technician"}</span></div>${ins.length ? `<div class="tbl-wrap"><table class="mgrid"><thead><tr><th>Technician</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
     ${techs.map(tn => { const te = ins.filter(e => e.tech === tn); return `<tr><td><b>${esc(tn.split(" ")[0])}</b></td>${days.map(d => { const v = te.filter(e => e.date === d).reduce((s, e) => s + e.amt, 0); return `<td class="n" ${v ? `title="${esc(te.filter(e => e.date === d).map(e => e.label + " " + money(e.amt)).join(", "))}"` : ""}>${v ? money(v) : ""}</td>`; }).join("")}<td class="n"><b>${money(te.reduce((s, e) => s + e.amt, 0))}</b></td></tr>`; }).join("")}
     <tr class="total"><td>Total</td>${days.map(d => `<td class="n">${money(ins.filter(e => e.date === d).reduce((s, e) => s + e.amt, 0))}</td>`).join("")}<td class="n">${money(ins.reduce((s, e) => s + e.amt, 0))}</td></tr></tbody></table></div>` : `<div class="empty"><b>No ${acctName(k)} payments this week</b>Payments recorded on completed bookings show up here by day.</div>`}</div>`;
   // money out and moves
@@ -1159,9 +1162,10 @@ function paidFromDialog(p, idxs) {
 /* ---------- Cash on hand (technician remittance) ---------- */
 // Cash a client hands to the technician on the day of service. Bookings imported from the old sheet count as settled.
 const cashHeld = (b) => num((b.pay || {}).cash) + (b.dpPaid && b.dpMethod === "cash" && b.dpWithTech ? num(b.dpAmount) : 0);
-// Bookings from the first sheet import (history up to Nov 19, 2026) count as settled. Bookings synced from the sheet after that are tracked like any other.
-const CASH_TRACK_FROM = "2026-11-20";
-const cashTracked = (b) => b.source !== "sheet" || (b.date || "") >= CASH_TRACK_FROM;
+// Cash is tracked (held by the tech until marked remitted) for bookings from Nov 21, 2026 on, whether added here or synced from the sheet.
+// Earlier bookings count as already settled.
+const CASH_TRACK_FROM = "2026-11-21";
+const cashTracked = (b) => (b.date || "") >= CASH_TRACK_FROM;
 const cashPending = () => S.bookings.filter(b => b.status === "done" && cashTracked(b) && cashHeld(b) > 0 && !b.cashRemitted);
 function vCash() {
   const pend = cashPending().filter(b => !ui.tech || b.techId === ui.tech).sort(byWhenAsc);
