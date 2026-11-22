@@ -192,6 +192,12 @@ button.banner.tipban { border: 1px solid color-mix(in srgb, var(--warn, #b45309)
 .sstrip .sn { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 6px 16px; border-top: 1px solid var(--line); background: var(--surface); }
 .panel .sstrip { margin: 0; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); }
 @media (max-width: 860px) { .sstrip > div { padding: 10px 10px; } .sstrip b { font-size: 14px; } .sstrip .l { font-size: 10px; } }
+.tgrid { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; padding: 6px 0; }
+.tday { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 12px; }
+.tday label { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 4px; color: var(--muted); }
+.tday input { font: inherit; font-size: 13px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 0; }
+.tday .tcalc { min-height: 1em; }
+@media (max-width: 860px) { .tgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); position: sticky; left: 0; width: calc(100vw - 56px); } .tday input { font-size: 14px; } }
 .linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 @media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -456,10 +462,10 @@ const todayStr = () => iso(new Date());
 const addDays = (s, k) => { const d = parseD(s); if (isNaN(d)) return ""; d.setDate(d.getDate() + k); return iso(d); };
 /* Weeks follow the salon's payroll: they start on settings.weekStart (6 = Saturday) and belong to the month that holds their middle day. */
 const WS = () => { const w = parseInt(S.settings.weekStart, 10); return Number.isFinite(w) ? w : 6; };
-const weekStartOf = (s) => { const d = parseD(s); return addDays(s, -((d.getDay() - WS() + 7) % 7)); };
-function weekInfo(s) {
-  const ws = weekStartOf(s), month = addDays(ws, 3).slice(0, 7);
-  let fs = weekStartOf(month + "-01"); if (addDays(fs, 3).slice(0, 7) !== month) fs = addDays(fs, 7);
+const weekStartOf = (s, st = WS()) => { const d = parseD(s); return addDays(s, -((d.getDay() - st + 7) % 7)); };
+function weekInfo(s, st = WS()) {
+  const ws = weekStartOf(s, st), month = addDays(ws, 3).slice(0, 7);
+  let fs = weekStartOf(month + "-01", st); if (addDays(fs, 3).slice(0, 7) !== month) fs = addDays(fs, 7);
   return { month, n: Math.round(dayDiff(ws, fs) / 7) + 1, start: ws, end: addDays(ws, 6) };
 }
 const weekOfMonth = (s) => weekInfo(s).n;
@@ -534,7 +540,7 @@ const payOf = (id) => S.staffpay.find(p => p.id === id) || {};
 function periodRange(p) {
   const t = todayStr();
   if (p === "today") return [t, t, "Today"];
-  if (p === "week") { const m = weekStartOf(t); return [m, addDays(m, 6), "This week"]; }
+  if (p === "week") { const m = weekStartOf(t, 1); return [m, addDays(m, 6), "This week (Mon–Sun)"]; }
   if (p === "lastmonth") { const d = parseD(t.slice(0, 7) + "-01"); d.setMonth(d.getMonth() - 1); const s = iso(d); const e = addDays(t.slice(0, 7) + "-01", -1); return [s, e, d.toLocaleDateString("en-PH", { month: "long", year: "numeric" })]; }
   if (p === "year") return [t.slice(0, 4) + "-01-01", t.slice(0, 4) + "-12-31", "This year"];
   if (p === "all") return ["0000", "9999", "All time"];
@@ -779,7 +785,7 @@ const loading = () => !allLoaded();
 function prevRange(p) {
   const t = todayStr();
   if (p === "today") { const y = addDays(t, -1); return [y, y, "yesterday"]; }
-  if (p === "week") { const m = addDays(weekStartOf(t), -7); return [m, addDays(m, dayDiff(t, weekStartOf(t))), "same days last week"]; }
+  if (p === "week") { const m = addDays(weekStartOf(t, 1), -7); return [m, addDays(m, dayDiff(t, weekStartOf(t, 1))), "same days last week"]; }
   if (p === "month") { const d = parseD(t.slice(0, 7) + "-01"); d.setMonth(d.getMonth() - 1); const a = iso(d); return [a, a.slice(0, 8) + t.slice(8), "same days last month"]; }
   if (p === "lastmonth") { const d = parseD(t.slice(0, 7) + "-01"); d.setMonth(d.getMonth() - 2); const a = iso(d); const e = parseD(a); e.setMonth(e.getMonth() + 1); return [a, addDays(iso(e), -1), "the month before"]; }
   if (p === "year") { const y = +t.slice(0, 4) - 1; return [y + "-01-01", y + t.slice(4), "same period last year"]; }
@@ -920,9 +926,9 @@ function topServices(done) {
 function weekly() {
   const mo = ui.month, weeks = [];
   const lastDay = iso(new Date(+mo.slice(0, 4), +mo.slice(5, 7), 0));
-  for (let d = addDays(mo + "-01", -6); d && d <= addDays(lastDay, 6); d = addDays(d, 7)) { const w = weekInfo(d); if (w.month === mo) weeks[w.n] = [w.start, w.end]; }
+  for (let d = addDays(mo + "-01", -6); d && d <= addDays(lastDay, 6); d = addDays(d, 7)) { const w = weekInfo(d, 1); if (w.month === mo) weeks[w.n] = [w.start, w.end]; }
   const W = weeks.map((w, i) => w && i).filter(Boolean);
-  const wk = (d) => { if (!d) return 0; const w = weekInfo(d); return w.month === mo ? w.n : 0; };
+  const wk = (d) => { if (!d) return 0; const w = weekInfo(d, 1); return w.month === mo ? w.n : 0; }; // Overview weeks run Monday to Sunday
   const row = (label, fn, cls = "") => { const vals = W.map(w => fn(w)); const tot = vals.reduce((a, b) => a + b, 0); return { label, vals, tot, cls }; };
   const done = S.bookings.filter(b => isDone(b) && wk(b.date));
   const sales = row("Service sales", w => done.filter(b => wk(b.date) === w).reduce((a, b) => a + svcTotal(b), 0));
@@ -1081,12 +1087,12 @@ function vPayroll() {
     </tbody></table></div></div>`;
   }
   const yr = ui.year, rows = {};
-  S.payroll.filter(p => (p.periodEnd || "").startsWith(yr)).forEach(p => (p.lines || []).forEach(l => { const r = rows[l.staffId] = rows[l.staffId] || { name: l.name, basic: 0, weeks: 0 }; r.basic += num(l.basic); r.weeks++; }));
+  S.payroll.filter(p => (p.periodEnd || "").startsWith(yr)).forEach(p => (p.lines || []).forEach(l => { const r = rows[l.staffId] = rows[l.staffId] || { name: l.name, basic: 0, weeks: 0, paid: 0 }; r.basic += num(l.basic); r.weeks++; r.paid += num(l.thirteenth); }));
   const list = Object.entries(rows).sort((a, b) => b[1].basic - a[1].basic);
   return html + `<div class="panel"><div class="ph"><h2>13th month pay, ${yr}</h2><select id="yrSel" aria-label="Year">${[...new Set([todayStr().slice(0, 4), ...S.payroll.map(p => (p.periodEnd || "").slice(0, 4))])].filter(Boolean).sort().reverse().map(y => `<option ${y === yr ? "selected" : ""}>${y}</option>`).join("")}</select></div>
     <div class="pb note" style="padding-bottom:0">Total basic pay earned in the year divided by 12, as required by law (PD 851). Overtime, commission and tips are not included. Due on or before December 24.</div>
-    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Staff</th><th class="n">Weeks paid</th><th class="n">Basic pay, ${yr}</th><th class="n">13th month</th></tr></thead><tbody>${list.map(([, r]) => `<tr><td>${esc(r.name)}</td><td class="n">${r.weeks}</td><td class="n">${money(r.basic)}</td><td class="n"><b>${money(r.basic / 12)}</b></td></tr>`).join("")}
-    <tr class="total"><td>Total</td><td></td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0))}</td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0) / 12)}</td></tr></tbody></table></div>` : `<div class="empty">No pay runs saved for ${yr} yet.</div>`}</div>`;
+    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Staff</th><th class="n">Weeks paid</th><th class="n">Basic pay, ${yr}</th><th class="n">13th month earned</th><th class="n">Already given weekly</th><th class="n">Still due</th></tr></thead><tbody>${list.map(([, r]) => `<tr><td>${esc(r.name)}</td><td class="n">${r.weeks}</td><td class="n">${money(r.basic)}</td><td class="n">${money(r.basic / 12)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.basic / 12 - r.paid))}</b></td></tr>`).join("")}
+    <tr class="total"><td>Total</td><td></td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0))}</td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0) / 12)}</td><td class="n">${money(list.reduce((a, [, r]) => a + r.paid, 0))}</td><td class="n">${money(list.reduce((a, [, r]) => a + Math.max(0, r.basic / 12 - r.paid), 0))}</td></tr></tbody></table></div>` : `<div class="empty">No pay runs saved for ${yr} yet.</div>`}</div>`;
 }
 function staffTable(admin) {
   if (!S.staff.length) return `<div class="panel"><div class="empty"><b>No staff yet</b>Add your technicians and admin with their daily rate, OT rate and commission. They'll appear in the booking form right away.${admin ? '<div class="actions"><button class="btn primary" data-act="newStaff">Add staff</button></div>' : ""}</div></div>`;
@@ -1569,6 +1575,9 @@ function vSetup() {
         <label class="f">Tagline<input class="inp" id="setTag" name="tagline" value="${esc(st.tagline || "At your own place")}"></label>
         <label class="f">Currency<input class="inp" id="setCur" name="currency" value="${esc(st.currency || "PHP")}" maxlength="3"></label>
         <label class="f">Default commission %<input class="inp" id="setComm" name="commission" type="number" step="0.5" min="0" value="${esc(st.commission ?? 10)}"></label>
+        <label class="f">Shift starts<input class="inp" name="shiftStart" type="time" value="${esc(st.shiftStart || "13:00")}"></label>
+        <label class="f">Shift ends (overtime after)<input class="inp" name="shiftEnd" type="time" value="${esc(st.shiftEnd || "22:00")}"></label>
+        <label class="f">Grace before late (minutes)<input class="inp" name="lateGrace" type="number" min="0" step="1" value="${esc(st.lateGrace ?? 15)}"></label>
         <label class="f">Pay week starts on<select id="setWs" name="weekStart">${[[6, "Saturday"], [0, "Sunday"], [1, "Monday"]].map(([v, l]) => `<option value="${v}" ${WS() === v ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
         <label class="f">Expense categories (comma-separated)<textarea id="setCats" name="cats" rows="3">${esc((st.expenseCats || DEFAULT_CATS).join(", "))}</textarea></label>
         <div><button class="btn primary" type="submit" ${isBoss() ? "" : "disabled"}>Save details</button> ${S.canEdit ? "" : '<span class="note">Only the owner and editors can change these.</span>'}</div>
@@ -1795,51 +1804,84 @@ function staffDialog(s) {
       toast(isNew ? "Staff added" : "Saved");
     });
 }
+// ---- time in / time out → days, overtime, late/undertime
+const shiftOf = () => ({ start: S.settings.shiftStart || "13:00", end: S.settings.shiftEnd || "22:00", grace: num(S.settings.lateGrace ?? 15) });
+const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
+function dayCalc(tin, tout) {
+  const sh = shiftOf(), a = toMin(tin), b0 = toMin(tout); if (a == null || b0 == null) return null;
+  const b = b0 <= a ? b0 + 1440 : b0, st = toMin(sh.start), en = toMin(sh.end) + (toMin(sh.end) <= st ? 1440 : 0);
+  const lateMin = a - st > sh.grace ? a - st : 0, underMin = en - b > 0 ? en - b : 0;
+  return { worked: (b - a) / 60, otH: Math.max(0, Math.floor((b - en) / 15) * 0.25), lateH: Math.ceil(lateMin / 60), underH: Math.ceil(underMin / 60) };
+}
+function timesSummary(tr) {
+  const sid = tr.dataset.sid, p = payOf(sid), hourly = num(p.dailyRate) / 8, rows = [...dform.querySelectorAll(`tr.tdays[data-for="${sid}"] [data-day]`)];
+  let days = 0, ot = 0, lateH = 0; const times = [];
+  rows.forEach(el => { const tin = el.querySelector('[data-t="in"]').value, tout = el.querySelector('[data-t="out"]').value, c = dayCalc(tin, tout);
+    const out = el.querySelector(".tcalc"); if (!c) { out.textContent = tin || tout ? "Add both times" : ""; return; }
+    days++; ot += c.otH; lateH += c.lateH + c.underH; times.push({ d: el.dataset.day, in: tin, out: tout });
+    out.textContent = [c.otH ? `OT ${c.otH} h` : "", c.lateH ? `late ${c.lateH} h` : "", c.underH ? `undertime ${c.underH} h` : ""].filter(Boolean).join(" · ") || "On time"; });
+  tr.querySelector('[name="days"]').value = days || ""; const otEl = tr.querySelector('[name="ot"]'); if (!otEl.dataset.manual) otEl.value = ot || "";
+  const late = tr.querySelector('[name="late"]'); if (!late.dataset.manual) late.value = lateH ? r2(lateH * hourly) : "";
+  tr.dataset.times = JSON.stringify(times);
+  tr.querySelector(".tsum").textContent = days ? `${days} day${days === 1 ? "" : "s"}${ot ? ` · OT ${ot} h` : ""}${lateH ? ` · late/under ${lateH} h` : ""}` : "Enter times";
+  const th = tr.querySelector('[name="th"]'); if (th && !th.dataset.manual) th.value = (tr.dataset.role || "Technician") === "Admin" ? "" : r2(days * num(p.dailyRate) / 12) || "";
+}
+function drawTimes() {
+  const ps = fv("ps"); if (!ps) return;
+  dform.querySelectorAll("tr.tdays").forEach(row => {
+    const keep = {}; row.querySelectorAll("[data-day]").forEach(el => keep[el.dataset.day] = [el.querySelector('[data-t="in"]').value, el.querySelector('[data-t="out"]').value]);
+    row.querySelector(".tgrid").innerHTML = [...Array(7)].map((_, i) => { const d = addDays(ps, i), k = keep[d] || ["", ""]; return `<div class="tday" data-day="${d}"><b>${fmtDate(d, { weekday: "short", month: "short", day: "numeric" })}</b><label>In<input type="time" data-t="in" value="${k[0]}"></label><label>Out<input type="time" data-t="out" value="${k[1]}"></label><span class="tcalc note"></span></div>`; }).join("");
+  });
+  dform.querySelectorAll("#payLines tr[data-sid]").forEach(timesSummary);
+}
 function payrollDialog() {
-  const t = todayStr(), start = weekStartOf(t), end = addDays(start, 6);
+  const t = todayStr(), start = weekStartOf(t), end = addDays(start, 6), sh = shiftOf();
   const staff = S.staff.filter(s => s.active !== false).sort((a, b) => (a.role === "Admin") - (b.role === "Admin") || (a.name || "").localeCompare(b.name || ""));
   const cell = (n, v, lab) => `<td><input class="inp" name="${n}" type="number" step="any" min="0" value="${v}" aria-label="${lab}" style="min-width:70px"></td>`;
   openDialog("Weekly payroll", `
     <div class="fields"><label class="f">Week starts (${["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][WS()]})<input class="inp" name="ps" type="date" required value="${start}"></label><label class="f">Week ends<input class="inp" name="pe" type="date" required value="${end}"></label></div>
-    <p class="note" style="margin:0">Commission comes from completed bookings in this week. Tips are not included; they are given to the technicians separately. Change anything before saving.</p>
-    <div class="tbl-wrap"><table class="lines paylines"><thead><tr><th>Staff</th><th>Days</th><th>OT hrs</th><th>Commission</th><th>Tips</th><th>Cash adv. / backjob</th><th>Late / undertime</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th class="n">Take-home</th></tr></thead><tbody id="payLines">
-      ${staff.map(s => { const p = payOf(s.id); return `<tr data-sid="${s.id}"><td style="white-space:nowrap"><b>${esc(s.name)}</b><div class="meta">${money(p.dailyRate)}/day · OT ${money(p.otRate)}/h</div></td>
-        ${cell("days", "", "Days worked")}${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
-        <td class="n num" data-net>${money(0)}</td></tr>`; }).join("")}
+    <p class="note" style="margin:0">Tap <b>Enter times</b> for each person and type their time in and time out each day. Days worked, overtime and late/undertime are worked out for you (shift ${fmtTime(sh.start)} – ${fmtTime(sh.end)}, ${sh.grace}-minute grace; overtime after ${fmtTime(sh.end)} in 15-minute blocks; late and undertime rounded up to whole hours at daily rate ÷ 8). Commission comes from completed bookings this week. Tips are not included.</p>
+    <div class="tbl-wrap"><table class="lines paylines"><thead><tr><th>Staff</th><th>Time in / out</th><th>OT hrs</th><th>Commission</th><th>13th month</th><th>Cash adv. / backjob</th><th>Late / undertime</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th class="n">Take-home</th></tr></thead><tbody id="payLines">
+      ${staff.map(s => { const p = payOf(s.id); return `<tr data-sid="${s.id}" data-role="${esc(s.role || "Technician")}"><td style="white-space:nowrap"><b>${esc(s.name)}</b><div class="meta">${money(p.dailyRate)}/day · OT ${money(p.otRate)}/h</div></td>
+        <td><button type="button" class="btn sm" data-act="payTimes" data-k="${s.id}"><span class="tsum">Enter times</span></button><input type="hidden" name="days"></td>
+        ${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}${cell("th", "", "13th month pay")}${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
+        <td class="n num" data-net>${money(0)}</td></tr>
+        <tr class="tdays" data-for="${s.id}" hidden><td colspan="11"><div class="tgrid"></div></td></tr>`; }).join("")}
     </tbody></table></div>
-    <p class="note" style="margin:0">Pending backjobs for the week are filled into "Cash adv. / backjob" and marked deducted when you save. Use 0.5 for a half day. SSS, PhilHealth and Pag-IBIG here are the employee's share taken from pay; log the employer's share under Expenses.</p>`,
+    <p class="note" style="margin:0">13th month pay is added every week for technicians as 1/12 of that week's basic pay; change it if needed. Pending backjobs are filled into "Cash adv. / backjob" and marked deducted when you save. SSS, PhilHealth and Pag-IBIG here are the employee's share taken from pay.</p>`,
     `<span class="total" id="payTotal"></span><button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Save pay run</button>`,
     async () => {
-      const lines = [...dform.querySelectorAll("#payLines tr")].map(tr => payLine(tr)).filter(l => l.gross || l.cashAdvance || l.late);
-      if (!lines.length) throw { message: "Enter days worked for at least one person." };
+      const lines = [...dform.querySelectorAll("#payLines tr[data-sid]")].map(tr => payLine(tr)).filter(l => l.gross || l.cashAdvance || l.late || l.thirteenth);
+      if (!lines.length) throw { message: "Enter time in and time out for at least one person." };
       const sum = k => r2(lines.reduce((a, l) => a + num(l[k]), 0));
       const bjs = lines.flatMap(l => pendingBackjobs(l.staffId, [fv("ps"), fv("pe")]));
       for (const x of bjs) await S.db.doc("backjobs/" + x.id).update({ status: "deducted", deductedOn: fv("pe") });
       await S.db.collection("payroll").add({ periodStart: fv("ps"), periodEnd: fv("pe"), lines, totalGross: sum("gross"), totalNet: sum("net"), totalGov: r2(lines.reduce((a, l) => a + govOf(l), 0)), paid: false, createdAt: now() });
       ui.payTab = "runs"; toast("Pay run saved");
     }, true);
-  fillPayAuto(); recalcPay();
+  drawTimes(); fillPayAuto(); recalcPay();
 }
 function payLine(tr) {
   const s = staffById(tr.dataset.sid) || {}, p = payOf(tr.dataset.sid), g = n => { const el = tr.querySelector(`[name="${n}"]`); return el ? num(el.value) : 0; };
-  const days = g("days"), otH = g("ot"), basic = r2(days * num(p.dailyRate)), otPay = r2(otH * num(p.otRate)), comm = g("comm"), tips = g("tips");
-  const gross = r2(basic + otPay + comm + tips), l = { staffId: s.id, name: s.name, role: s.role || "Technician", dailyRate: num(p.dailyRate), otRate: num(p.otRate), days, otHours: otH, basic, otPay, commission: comm, tips, gross, cashAdvance: g("ca"), late: g("late"), sss: g("sss"), philhealth: g("ph"), pagibig: g("pi") };
-  l.net = r2(gross - l.cashAdvance - l.late - govOf(l));
+  const days = g("days"), otH = g("ot"), basic = r2(days * num(p.dailyRate)), otPay = r2(otH * num(p.otRate)), comm = g("comm");
+  const gross = r2(basic + otPay + comm), l = { staffId: s.id, name: s.name, role: s.role || "Technician", dailyRate: num(p.dailyRate), otRate: num(p.otRate), days, otHours: otH, basic, otPay, commission: comm, tips: 0, gross, cashAdvance: g("ca"), late: g("late"), sss: g("sss"), philhealth: g("ph"), pagibig: g("pi"), thirteenth: g("th") };
+  try { const tm = JSON.parse(tr.dataset.times || "[]"); if (tm.length) l.times = tm; } catch { }
+  l.salaryNet = r2(gross - l.cashAdvance - l.late - govOf(l));
+  l.net = r2(l.salaryNet + l.thirteenth);
   return l;
 }
 function fillPayAuto() {
   const r = [fv("ps"), fv("pe")];
-  dform.querySelectorAll("#payLines tr").forEach(tr => {
+  dform.querySelectorAll("#payLines tr[data-sid]").forEach(tr => {
     const sid = tr.dataset.sid, bk = S.bookings.filter(b => isDone(b) && hasTech(b, sid) && inR(b.date, r));
     tr.querySelector('[name="comm"]').value = r2(bk.reduce((a, b) => a + commissionFor(b, sid), 0));
-    const days = new Set(bk.map(b => b.date)).size; const d = tr.querySelector('[name="days"]'); if (!d.value && days) d.value = days;
     const bj = pendingBackjobs(tr.dataset.sid, r).reduce((a, x) => a + num(x.amount), 0);
     tr.querySelector('[name="ca"]').value = bj ? r2(bj) : "";
   });
 }
 function recalcPay() {
   let tot = 0;
-  dform.querySelectorAll("#payLines tr").forEach(tr => { const l = payLine(tr); tr.querySelector("[data-net]").textContent = money(l.net); tot += l.net; });
+  dform.querySelectorAll("#payLines tr[data-sid]").forEach(tr => { const l = payLine(tr); tr.querySelector("[data-net]").textContent = money(l.net); tot += l.net; });
   $("#payTotal", dform).innerHTML = `<b>${money(tot)}</b><span class="note">Total take-home</span>`;
 }
 function runDialog(p) {
@@ -1855,7 +1897,10 @@ function runDialog(p) {
     ${num(l.sss) + num(l.philhealth) + num(l.pagibig) ? `<div class="row"><span>Less SSS ${money(l.sss)} · PhilHealth ${money(l.philhealth)} · Pag-IBIG ${money(l.pagibig)}</span><span class="num">−${money(num(l.sss) + num(l.philhealth) + num(l.pagibig))}</span></div>` : ""}
     ${num(l.benefits) ? `<div class="row"><span>Less benefits, employee share</span><span class="num">−${money(l.benefits)}</span></div>` : ""}
     ${num(l.other) ? `<div class="row"><span>${num(l.other) > 0 ? "Other additions (incentive, abono)" : "Other deductions"}</span><span class="num">${num(l.other) > 0 ? "+" : "−"}${money(Math.abs(num(l.other)))}</span></div>` : ""}
-    <div class="row"><b>Take-home pay</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div></div></div></div>`;
+    ${num(l.thirteenth) ? `<div class="row"><b>Salary take-home</b><b class="num">${money(num(l.net) - num(l.thirteenth))}</b></div>
+    <div class="row"><span>13th month pay <span class="note">(1/12 of this week's basic, given weekly)</span></span><span class="num">+${money(l.thirteenth)}</span></div>
+    <div class="row"><b>Total received (salary + 13th month)</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div>` : `<div class="row"><b>Take-home pay</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div>`}
+    ${(l.times || []).length ? `<details style="margin-top:6px"><summary class="note" style="cursor:pointer">Time in / out (${l.times.length} day${l.times.length === 1 ? "" : "s"})</summary><div class="note" style="line-height:1.8">${l.times.map(x => `${fmtDate(x.d, { weekday: "short", month: "short", day: "numeric" })}: ${fmtTime(x.in)} – ${fmtTime(x.out)}`).join("<br>")}</div></details>` : ""}</div></div></div>`;
   openDialog(`Payslips · ${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}`, `<div class="grid cols-2">${L.map(slip).join("")}</div><p class="note" style="margin:0">Total take-home <b class="num">${money(p.totalNet)}</b> for ${L.length} staff.</p>`,
     `<button type="button" class="btn danger" data-act="delRun" data-id="${p.id}">Delete run</button><span style="flex:1"></span><button type="button" class="btn" data-act="close">Close</button><button type="button" class="btn primary" data-act="togglePaid" data-id="${p.id}">${runStatus(p)[0] === "Paid" ? "Mark everyone unpaid" : "Mark everyone paid"}</button>`, null, true);
 }
@@ -1991,6 +2036,7 @@ document.addEventListener("click", async (ev) => {
       case "mOpening": openingDialog(k); break;
       case "moveMoney": moveDialog(); break;
       case "transfer": transferDialog(ui.mAcct || "cash"); break;
+      case "payTimes": { const row = dform.querySelector(`tr.tdays[data-for="${k}"]`); row.hidden = !row.hidden; if (!row.hidden) { const f = row.querySelector('[data-t="in"]'); if (f) f.focus(); } break; }
       case "tipsList": tipsDialog(); break;
       case "tipGive": { const bk = find("bookings", id); if (bk) { ui.reopenTips = dlg.open; tipGiveDialog(bk); } break; }
       case "tipUngive": { const bk = find("bookings", id); if (bk && confirm(`Mark the ${money(bk.tip)} tip for ${mainTechName(bk).split(" ")[0]} as not given yet?`)) { await S.db.doc("bookings/" + id).update({ tipGiven: false, tipGivenOn: "", tipGivenFrom: "", updatedAt: now() }); toast("Tip moved back to 'to give'"); tipsDialog(); } break; }
@@ -2072,7 +2118,11 @@ document.addEventListener("input", (ev) => {
   else if (t.id === "clQ") { ui.clQ = t.value; renderSoon(); }
   else if (t.id === "invQ") { ui.invQ = t.value; ui.more = 0; renderSoon(); }
   else if (dform.contains(t) && $("#bkLines", dform)) recalcBooking();
-  else if (dform.contains(t) && $("#payLines", dform)) recalcPay();
+  else if (dform.contains(t) && $("#payLines", dform)) {
+    if (t.dataset.t) { const row = t.closest("tr.tdays"); timesSummary(dform.querySelector(`#payLines tr[data-sid="${row.dataset.for}"]`)); }
+    else if (t.name === "late" || t.name === "th" || t.name === "ot") t.dataset.manual = t.value === "" ? "" : "1";
+    recalcPay();
+  }
 });
 document.addEventListener("change", (ev) => {
   const t = ev.target;
@@ -2091,7 +2141,7 @@ document.addEventListener("change", (ev) => {
     drawLines(); return;
   }
   if (dform.contains(t) && t.name === "client") { const c = clientList().find(x => x.name.toLowerCase() === t.value.trim().toLowerCase()); if (c) { if (!fv("phone")) dform.elements.phone.value = c.phone; if (!fv("address")) dform.elements.address.value = c.address; } }
-  if (dform.contains(t) && (t.name === "ps" || t.name === "pe")) { if (t.name === "ps" && t.value) dform.elements.pe.value = addDays(t.value, 6); fillPayAuto(); recalcPay(); }
+  if (dform.contains(t) && (t.name === "ps" || t.name === "pe")) { if (t.name === "ps" && t.value) dform.elements.pe.value = addDays(t.value, 6); if (t.name === "ps") drawTimes(); fillPayAuto(); recalcPay(); }
   if (dform.contains(t) && (t.name === "techId" || t.name === "techId2") && $("#bkLines", dform)) { syncLines(); drawLines(); }
   else if (dform.contains(t) && t.name === "backjob") recalcBooking();
   if (dform.contains(t) && t.name === "dpPaid") { const on = t.value === "1"; dform.elements.dpAmount.disabled = !on; dform.elements.dpMethod.disabled = !on; if (on) dform.elements.dpAmount.focus(); recalcBooking(); }
@@ -2113,7 +2163,7 @@ document.addEventListener("submit", async (ev) => {
   const f = ev.target.elements, cur = f.currency.value.trim().toUpperCase() || "PHP";
   try { new Intl.NumberFormat("en-PH", { style: "currency", currency: cur }); } catch { toast(`"${cur}" isn't a currency code. Use three letters, like PHP.`); return; }
   const cats = f.cats.value.split(",").map(s => s.trim()).filter(Boolean);
-  try { await S.db.doc("settings/main").update({ name: f.name.value.trim() || "B&B Lounge", tagline: f.tagline.value.trim(), currency: cur, commission: num(f.commission.value), weekStart: parseInt(f.weekStart.value, 10), expenseCats: cats.length ? cats : DEFAULT_CATS }); fmtCache = {}; document.activeElement.blur(); toast("Business details saved"); render(); }
+  try { await S.db.doc("settings/main").update({ name: f.name.value.trim() || "B&B Lounge", tagline: f.tagline.value.trim(), currency: cur, commission: num(f.commission.value), weekStart: parseInt(f.weekStart.value, 10), shiftStart: f.shiftStart.value || "13:00", shiftEnd: f.shiftEnd.value || "22:00", lateGrace: num(f.lateGrace.value), expenseCats: cats.length ? cats : DEFAULT_CATS }); fmtCache = {}; document.activeElement.blur(); toast("Business details saved"); render(); }
   catch (err) { toast(errText(err)); }
 });
 dlg.addEventListener("close", () => { onSubmit = null; });
@@ -2313,7 +2363,7 @@ async function exportCsv(kind) {
   if (kind === "expenses") rows = [["Date", "Category", "Item", "Qty", "Amount", "Note"], ...S.expenses.map(e => [e.date, e.category, e.item, e.qty, e.amount, e.note])];
   if (kind === "staff") rows = [["Name", "Role", "Phone", "Commission %", "Daily rate", "OT per hour", "Active"], ...S.staff.map(s => [s.name, s.role, s.phone, s.commRate, payOf(s.id).dailyRate, payOf(s.id).otRate, s.active !== false ? "yes" : "no"])];
   if (kind === "backjobs") rows = [["Date", "Client", "Number", "Service", "Reason", "Tech responsible", "Redone by", "Deduction", "Status"], ...S.backjobs.map(x => [x.date, x.client, x.phone, x.service, x.reason, (staffById(x.techId) || {}).name, (staffById(x.redoTechId) || {}).name, x.amount, x.status])];
-  if (kind === "payroll") rows = [["Week start", "Week end", "Staff", "Days", "Basic", "OT hrs", "OT pay", "Commission", "Tips", "Gross", "Cash adv/backjob", "Late", "SSS", "PhilHealth", "Pag-IBIG", "Take-home", "Paid", "Paid on"], ...S.payroll.flatMap(p => (p.lines || []).map(l => [l.periodStart || p.periodStart, l.periodEnd || p.periodEnd, l.name, l.days, l.basic, l.otHours, l.otPay, l.commission, l.tips, l.gross, l.cashAdvance, l.late, l.sss, l.philhealth, l.pagibig, l.net, linePaid(p, l) ? "yes" : "no", l.paidOn || ""]))];
+  if (kind === "payroll") rows = [["Week start", "Week end", "Staff", "Days", "Basic", "OT hrs", "OT pay", "Commission", "Tips", "Gross", "Cash adv/backjob", "Late", "SSS", "PhilHealth", "Pag-IBIG", "13th month", "Take-home", "Paid", "Paid on"], ...S.payroll.flatMap(p => (p.lines || []).map(l => [l.periodStart || p.periodStart, l.periodEnd || p.periodEnd, l.name, l.days, l.basic, l.otHours, l.otPay, l.commission, l.tips, l.gross, l.cashAdvance, l.late, l.sss, l.philhealth, l.pagibig, l.thirteenth || 0, l.net, linePaid(p, l) ? "yes" : "no", l.paidOn || ""]))];
   if (!rows) return;
   if (!S.downloads) { toast("Downloads aren't available in this view"); return; }
   try { await S.downloads.save({ filename: `${kind}-${todayStr()}.csv`, data: toCsv(rows) }); } catch (err) { if (err && err.code !== "declined") toast("Couldn't save the file"); }
