@@ -198,6 +198,7 @@ button.banner.tipban { border: 1px solid color-mix(in srgb, var(--warn, #b45309)
 .tday input { font: inherit; font-size: 13px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); min-width: 0; }
 .tday .tcalc { min-height: 1em; }
 @media (max-width: 860px) { .tgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); position: sticky; left: 0; width: calc(100vw - 56px); } .tday input { font-size: 14px; } }
+.catrow[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 10%, transparent) !important; border-radius: 8px; }
 .linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 @media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -1107,17 +1108,25 @@ const govOf = (l) => num(l.sss) + num(l.philhealth) + num(l.pagibig) + num(l.ben
 
 /* ---------- Expenses ---------- */
 function vExpenses() {
-  const r = periodRange(ui.period);
-  const rows = S.expenses.filter(e => inR(e.date, r)).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const r = periodRange(ui.period), q = (ui.exQ || "").toLowerCase();
+  const inPeriod = S.expenses.filter(e => inR(e.date, r));
+  const cats = [...new Set(inPeriod.map(e => e.category || "Others"))].sort((a, b) => a.localeCompare(b));
+  const rows = inPeriod.filter(e => (!ui.exCat || (e.category || "Others") === ui.exCat) && (!ui.exFrom || (ui.exFrom === "none" ? !e.paidFrom : e.paidFrom === ui.exFrom)) && (!q || [e.item, e.note, e.category].some(x => (x || "").toLowerCase().includes(q))))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || "") || num(b.amount) - num(a.amount));
   const total = rows.reduce((a, e) => a + num(e.amount), 0), byCat = {};
   rows.forEach(e => byCat[e.category || "Others"] = (byCat[e.category || "Others"] || 0) + num(e.amount));
-  let html = head("Expenses", `${r[2]} · <span class="num">${money(total)}</span>`, `<button class="btn" data-act="export" data-k="expenses">Export CSV</button><button class="btn primary" data-act="newExpense">Add expense</button>`);
-  html += `<div class="grid cols-3"><div class="panel"><div class="ph">${periodSeg()}</div>`;
-  html += rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Category</th><th>Item</th><th class="n">Qty</th><th class="n">Amount</th><th></th></tr></thead><tbody>
-    ${grouped(rows, e => weekInfo(e.date).start, (ws, g) => { const w = weekInfo(ws); return `${fmtDate(w.month + "-01", { month: "long" })} · Week ${w.n} <span style="font-weight:500;opacity:.8">(${fmtDate(w.start, { month: "short", day: "numeric" })} – ${fmtDate(w.end, { month: "short", day: "numeric" })})</span>`; }, 6, e => `<tr><td>${fmtDate(e.date, { weekday: "short", month: "short", day: "numeric" })}</td><td>${esc(e.category || "Others")}</td><td>${esc(e.item || "")}${e.note ? `<div class="meta">${esc(e.note)}</div>` : ""}</td><td class="n">${e.qty ? num(e.qty) : ""}</td><td class="n">${money(e.amount)}</td><td class="act"><button class="btn sm ghost" data-act="editExpense" data-id="${e.id}">Edit</button></td></tr>`, g => money(g.reduce((a, e) => a + num(e.amount), 0)))}
+  const filtered = ui.exCat || ui.exFrom || q;
+  let html = head("Expenses", `${r[2]} · ${rows.length} item${rows.length === 1 ? "" : "s"} · <span class="num">${money(total)}</span>${filtered ? " (filtered)" : ""}`, `<button class="btn" data-act="export" data-k="expenses">Export CSV</button><button class="btn primary" data-act="newExpense">Add expense</button>`);
+  html += `<div class="grid cols-3"><div class="panel"><div class="ph"><div class="toolbar">${periodSeg()}</div>
+    <div class="toolbar"><select id="exCat" aria-label="Category"><option value="">All categories</option>${cats.map(c => `<option ${ui.exCat === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    <select id="exFrom" aria-label="Paid from"><option value="">Any account</option>${ACCTS.map(([k, l]) => `<option value="${k}" ${ui.exFrom === k ? "selected" : ""}>Paid from ${l}</option>`).join("")}<option value="none" ${ui.exFrom === "none" ? "selected" : ""}>Not tracked</option></select>
+    <input type="search" id="exQ" placeholder="Search item, note" value="${esc(ui.exQ || "")}" aria-label="Search expenses">${filtered ? '<button type="button" class="btn sm ghost" data-act="exClear">Clear filters</button>' : ""}</div></div>`;
+  let zi = 0;
+  html += rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>Category</th><th>Item</th><th class="n">Qty</th><th>Paid from</th><th class="n">Amount</th><th></th></tr></thead><tbody>
+    ${grouped(rows, e => e.date || "", (d, g) => `${d ? fmtDate(d, { weekday: "long", month: "long", day: "numeric" }) : "No date"} · ${g.length} item${g.length === 1 ? "" : "s"}`, 6, e => `<tr class="${zi++ % 2 ? "zebra" : ""}"><td>${esc(e.category || "Others")}</td><td>${esc(e.item || "")}${e.note ? `<div class="meta">${esc(e.note)}</div>` : ""}</td><td class="n">${e.qty ? num(e.qty) : ""}</td><td>${e.paidFrom ? `<span class="pay"><i style="background:var(--${e.paidFrom})"></i>${acctName(e.paidFrom)}</span>` : '<span class="note">—</span>'}</td><td class="n">${money(e.amount)}</td><td class="act"><button class="btn sm ghost" data-act="editExpense" data-id="${e.id}">Edit</button></td></tr>`, g => money(g.reduce((a, e) => a + num(e.amount), 0)))}
     <tr class="total"><td colspan="4">Total</td><td class="n">${money(total)}</td><td></td></tr></tbody></table></div>`
-    : `<div class="empty"><b>No expenses in this period</b>Log supplies from Lazada or Shopee, Lalamove and Grab, rent, water, electricity and the rest so your net figure is real.<div class="actions"><button class="btn primary" data-act="newExpense">Add expense</button></div></div>`;
-  html += `</div><div class="panel"><div class="ph"><h2>By category</h2></div><div class="pb">${Object.keys(byCat).length ? `<div class="list">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<div class="row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(c)}</span><span class="num">${money(v)}</span></div><div class="bartrack"><i style="width:${v / total * 100}%"></i></div></div>`).join("")}</div>` : '<div class="note">Nothing yet.</div>'}</div></div></div>`;
+    : `<div class="empty"><b>${inPeriod.length ? "Nothing matches these filters" : "No expenses in this period"}</b>${inPeriod.length ? "Try another category or account, or clear the filters." : "Log supplies from Lazada or Shopee, Lalamove and Grab, rent, water, electricity and the rest so your net figure is real."}<div class="actions"><button class="btn primary" data-act="newExpense">Add expense</button></div></div>`;
+  html += `</div><div class="panel"><div class="ph"><h2>By category</h2><span class="note">Tap to filter</span></div><div class="pb">${Object.keys(byCat).length ? `<div class="list">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([c, v]) => `<button type="button" class="row catrow" data-act="exCatPick" data-k="${esc(c)}" aria-pressed="${ui.exCat === c}" style="display:block;width:100%;text-align:left;font:inherit;color:inherit;background:none;border:0;cursor:pointer"><div style="display:flex;justify-content:space-between;gap:10px"><span>${esc(c)}</span><span class="num">${money(v)}</span></div><div class="bartrack"><i style="width:${total ? v / total * 100 : 0}%"></i></div></button>`).join("")}</div>` : '<div class="note">Nothing yet.</div>'}</div></div></div>`;
   return html;
 }
 
@@ -2038,6 +2047,8 @@ document.addEventListener("click", async (ev) => {
       case "transfer": transferDialog(ui.mAcct || "cash"); break;
       case "payTimes": { const row = dform.querySelector(`tr.tdays[data-for="${k}"]`); row.hidden = !row.hidden; if (!row.hidden) { const f = row.querySelector('[data-t="in"]'); if (f) f.focus(); } break; }
       case "tipsList": tipsDialog(); break;
+      case "exClear": ui.exCat = ui.exFrom = ui.exQ = ""; render(); break;
+      case "exCatPick": ui.exCat = ui.exCat === k ? "" : k; render(); break;
       case "tipGive": { const bk = find("bookings", id); if (bk) { ui.reopenTips = dlg.open; tipGiveDialog(bk); } break; }
       case "tipUngive": { const bk = find("bookings", id); if (bk && confirm(`Mark the ${money(bk.tip)} tip for ${mainTechName(bk).split(" ")[0]} as not given yet?`)) { await S.db.doc("bookings/" + id).update({ tipGiven: false, tipGivenOn: "", tipGivenFrom: "", updatedAt: now() }); toast("Tip moved back to 'to give'"); tipsDialog(); } break; }
       case "editMove": { const mm = find("moneylog", id); if (mm && mm.kind === "spend") spendDialog(mm); else if (mm && mm.kind === "opening") openingDialog(mm.to); else moveDialog(mm); break; }
@@ -2116,6 +2127,7 @@ document.addEventListener("input", (ev) => {
   if (t.id === "hQ") { ui.hQ = t.value; renderSoon(); return; }
   if (t.id === "bkQ") { ui.bkQ = t.value; ui.more = 0; renderSoon(); }
   else if (t.id === "clQ") { ui.clQ = t.value; renderSoon(); }
+  else if (t.id === "exQ") { ui.exQ = t.value; renderSoon(); }
   else if (t.id === "invQ") { ui.invQ = t.value; ui.more = 0; renderSoon(); }
   else if (dform.contains(t) && $("#bkLines", dform)) recalcBooking();
   else if (dform.contains(t) && $("#payLines", dform)) {
@@ -2128,6 +2140,8 @@ document.addEventListener("change", (ev) => {
   const t = ev.target;
   if (t.id === "techSel") { ui.tech = t.value; render(); return; }
   if (t.id === "hWho") { ui.hWho = t.value; render(); return; }
+  if (t.id === "exCat") { ui.exCat = t.value; render(); return; }
+  if (t.id === "exFrom") { ui.exFrom = t.value; render(); return; }
   if (t.id === "hCol") { ui.hCol = t.value; render(); return; }
   if (t.id === "hAct") { ui.hAct = t.value; render(); return; }
   if (t.dataset && t.dataset.cashsel) { if (t.checked) ui.cashSel[t.dataset.cashsel] = true; else delete ui.cashSel[t.dataset.cashsel]; return; }
@@ -2360,7 +2374,7 @@ async function exportCsv(kind) {
   if (kind === "bookings") rows = [["Date", "Time", "Client", "Number", "Address", "Services", "Tech", "Status", "Service total", "Transpo going", "Transpo return", "Transpo total", "Total overall", "Commission", "Cash", "GCash", "BDO", "Tip", "Tip paid by", "Backjob", "Notes"], ...[...S.bookings].sort(byWhenAsc).map(b => [b.date, b.time, b.client, b.phone, b.address, (b.items || []).map(i => `${i.name} x${i.qty} @${i.price}`).join("; "), techName(b), b.status, svcTotal(b), trSplit(b)[0], trSplit(b)[1] ?? "", b.transpo, overall(b), commission(b), (b.pay || {}).cash, (b.pay || {}).gcash, (b.pay || {}).bdo, b.tip, b.tip ? ({ gcash: "GCash", bdo: "BDO", cash: "Cash to tech" }[b.tipVia] || "") : "", b.backjob ? "yes" : "", b.notes])];
   if (kind === "services") rows = [["Service", "Category", "Price"], ...S.services.map(s => [s.name, s.category, s.price])];
   if (kind === "inventory") rows = [["Item", "Category", "Qty", "Unit", "Last counted"], ...S.inventory.map(i => [i.name, i.category, i.qty, i.unit, i.counted])];
-  if (kind === "expenses") rows = [["Date", "Category", "Item", "Qty", "Amount", "Note"], ...S.expenses.map(e => [e.date, e.category, e.item, e.qty, e.amount, e.note])];
+  if (kind === "expenses") rows = [["Date", "Category", "Item", "Qty", "Amount", "Paid from", "Note"], ...[...S.expenses].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map(e => [e.date, e.category, e.item, e.qty, e.amount, e.paidFrom ? acctName(e.paidFrom) : "", e.note])];
   if (kind === "staff") rows = [["Name", "Role", "Phone", "Commission %", "Daily rate", "OT per hour", "Active"], ...S.staff.map(s => [s.name, s.role, s.phone, s.commRate, payOf(s.id).dailyRate, payOf(s.id).otRate, s.active !== false ? "yes" : "no"])];
   if (kind === "backjobs") rows = [["Date", "Client", "Number", "Service", "Reason", "Tech responsible", "Redone by", "Deduction", "Status"], ...S.backjobs.map(x => [x.date, x.client, x.phone, x.service, x.reason, (staffById(x.techId) || {}).name, (staffById(x.redoTechId) || {}).name, x.amount, x.status])];
   if (kind === "payroll") rows = [["Week start", "Week end", "Staff", "Days", "Basic", "OT hrs", "OT pay", "Commission", "Tips", "Gross", "Cash adv/backjob", "Late", "SSS", "PhilHealth", "Pag-IBIG", "13th month", "Take-home", "Paid", "Paid on"], ...S.payroll.flatMap(p => (p.lines || []).map(l => [l.periodStart || p.periodStart, l.periodEnd || p.periodEnd, l.name, l.days, l.basic, l.otHours, l.otPay, l.commission, l.tips, l.gross, l.cashAdvance, l.late, l.sss, l.philhealth, l.pagibig, l.thirteenth || 0, l.net, linePaid(p, l) ? "yes" : "no", l.paidOn || ""]))];
