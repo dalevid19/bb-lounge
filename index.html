@@ -1426,7 +1426,10 @@ function paidFromDialog(p, idxs) {
 /* ---------- Cash on hand (technician remittance) ---------- */
 // Cash a client hands to the technician on the day of service. Bookings imported from the old sheet count as settled.
 const cashHeld = (b) => num((b.pay || {}).cash) + (b.dpPaid && b.dpMethod === "cash" && b.dpWithTech ? num(b.dpAmount) : 0);
-const cashPending = () => S.bookings.filter(b => b.status === "done" && b.source !== "sheet" && cashHeld(b) > 0 && !b.cashRemitted);
+// Bookings from the first sheet import (history up to Nov 19, 2026) count as settled. Bookings synced from the sheet after that are tracked like any other.
+const CASH_TRACK_FROM = "2026-11-20";
+const cashTracked = (b) => b.source !== "sheet" || (b.date || "") >= CASH_TRACK_FROM;
+const cashPending = () => S.bookings.filter(b => b.status === "done" && cashTracked(b) && cashHeld(b) > 0 && !b.cashRemitted);
 function vCash() {
   const pend = cashPending().filter(b => !ui.tech || b.techId === ui.tech).sort(byWhenAsc);
   const allPend = cashPending();
@@ -1800,7 +1803,7 @@ function bookingDialog(b, prefill, opts) {
       <label class="f">DP paid by<select name="dpMethod" ${b.dpPaid ? "" : "disabled"}>${METHODS.map(([k, l]) => `<option value="${k}" ${(b.dpMethod || "gcash") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
     <div class="note" style="margin-top:-6px">Paid on the day of service:</div>
     <div class="fields">${METHODS.map(([k, l]) => `<label class="f">${l}<input class="inp" name="pay_${k}" type="number" step="0.01" min="0" value="${num((b.pay || {})[k]) || ""}"></label>`).join("")}</div>
-    ${!isNew && cashHeld(b) > 0 && b.source !== "sheet" ? `<div class="note">${b.cashRemitted ? `<span class="pill ok">Cash remitted ${fmtDate(b.remittedOn)}</span>${b.remitNote ? " · " + esc(b.remitNote) : ""}` : `<span class="pill low">Cash ${money(cashHeld(b))} still with ${esc(techName(b))}</span>`}</div>` : ""}
+    ${!isNew && cashHeld(b) > 0 && cashTracked(b) ? `<div class="note">${b.cashRemitted ? `<span class="pill ok">Cash remitted ${fmtDate(b.remittedOn)}</span>${b.remitNote ? " · " + esc(b.remitNote) : ""}` : `<span class="pill low">Cash ${money(cashHeld(b))} still with ${esc(techName(b))}</span>`}</div>` : ""}
     <div class="toolbar note">Pay the rest by: ${METHODS.map(([k, l]) => `<button type="button" class="btn sm" data-act="payFull" data-k="${k}">${l}</button>`).join("")} <span id="bkBal"></span></div>
     <label class="f">Notes<input class="inp" name="notes" value="${esc(b.notes || "")}" placeholder="Design, nail shape, Angkas pin…"></label>
     <div class="sumbox" id="bkSum"></div>`,
