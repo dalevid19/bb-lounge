@@ -618,7 +618,9 @@ function renderNav() {
 function route(want) {
   ui.more = 0;
   const h = typeof want === "string" ? want : (location.hash || "").slice(1);
+  const prevView = ui.view;
   ui.view = VIEWS.some(v => v[0] === h) && canSee(h) ? h : homeView();
+  if (prevView && prevView !== ui.view && ui.period === "custom") { ui.period = "month"; ui.pFrom = ui.pTo = ""; } // picked dates reset when you change tabs
   render();
 }
 window.addEventListener("hashchange", route);
