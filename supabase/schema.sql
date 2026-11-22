@@ -39,7 +39,7 @@ language sql stable security definer set search_path = public as $$
   select case
     when public.my_role() is null then false
     when c = 'audit' then public.my_role() = 'owner' or i = auth.uid()::text
-    when c in ('payroll', 'staffpay', 'expenses') then public.my_role() in ('owner', 'hr')
+    when c in ('payroll', 'staffpay', 'expenses', 'moneylog') then public.my_role() in ('owner', 'hr')
     else true
   end
 $$;
