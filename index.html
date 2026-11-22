@@ -434,6 +434,8 @@ tr.zebra, tr.zebra > td { background: color-mix(in srgb, var(--ink) 6%, var(--su
 .mcard:first-child { border-left: 0; }
 .mcard[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); box-shadow: inset 0 -3px 0 var(--accent); }
 .mgrid td, .mgrid th { white-space: nowrap; }
+.mday td, .mday th { white-space: nowrap; }
+@media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .pchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .pchip { font: inherit; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; border: 1px dashed color-mix(in srgb, var(--warn, #b45309) 60%, var(--line)); background: transparent; color: var(--muted); cursor: pointer; }
@@ -1371,14 +1373,21 @@ function vMoney() {
   const op = openingOf(k);
   if (!op) html += `<div class="banner" style="margin-bottom:14px"><span><b>${acctName(k)}: starting balance not set.</b> Count the ${acctName(k)} money you have on a day, enter it once, and the running balance starts from there.</span><button class="btn sm primary" data-act="mOpening" data-k="${k}">Set starting balance</button></div>`;
   if (k === "cash") { const pend = cashPending(); if (pend.length) html += `<a class="banner" href="#cash" style="text-decoration:none;margin-bottom:14px"><span><b class="num">${money(pend.reduce((a, b) => a + cashHeld(b), 0))}</b> of the cash counted here is not remitted yet (still with the technicians). Mark it in Cash on hand once it's handed over.</span><span class="btn sm">Cash on hand</span></a>`; }
+  // latest activity for this account since its starting balance, whatever week is shown
+  if (op) {
+    const recent = ev.filter(e => e.acct === k && e.date >= op.date && e.date <= t && e.type !== "open").sort((a, b) => b.date.localeCompare(a.date) || b.amt - a.amt), shown = recent.slice(0, ui.mMore ? 200 : 12);
+    html += `<div class="panel" style="margin-bottom:14px"><div class="ph"><h2>${acctName(k)} · latest activity</h2><span class="note">Since ${fmtDate(op.date, { month: "short", day: "numeric" })} · balance now <b class="num">${money(balanceAt(ev, k, t))}</b></span></div>
+      ${recent.length ? `<div class="pb" style="padding-top:4px;padding-bottom:4px"><div class="list">${shown.map(e => `<div class="row"><span style="min-width:0"><span class="note">${fmtDate(e.date, { weekday: "short", month: "short", day: "numeric" })}</span><br>${esc(e.tech && e.type === "in" ? e.tech.split(" ")[0] + " · " : "")}${esc(e.label.replace(/ · not remitted yet$/, ""))}${e.pending ? ' <span class="pill low" style="font-size:10px">not remitted</span>' : ""}</span><span class="num ${e.amt < 0 ? "neg" : ""}" style="white-space:nowrap">${e.amt < 0 ? "−" : "+"}${money(Math.abs(e.amt))}</span></div>`).join("")}</div>
+        ${recent.length > shown.length ? `<div style="text-align:center;padding:8px 0"><button class="btn sm" data-act="mMore">Show all ${recent.length}</button></div>` : ""}</div>` : `<div class="empty"><b>No ${acctName(k)} activity since ${fmtDate(op.date, { month: "short", day: "numeric" })}</b>Payments, spending and moves show up here as they happen.</div>`}</div>`;
+  }
   // daily summary
   const acctEv = wk.filter(e => e.acct === k);
   html += `<div class="panel"><div class="ph"><h2>${acctName(k)} · day by day</h2>${op ? `<span class="note">Starting balance ${money(op.amount)} on ${fmtDate(op.date, { month: "short", day: "numeric" })} · <button type="button" class="btn sm ghost" data-act="mOpening" data-k="${k}">Change</button></span>` : ""}</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Day</th><th class="n">In</th><th class="n">Out</th><th class="n">Net</th><th class="n">Balance</th><th>Checked</th></tr></thead><tbody>${days.map(d => {
+    <div class="tbl-wrap"><table class="keep mday"><thead><tr><th>Day</th><th class="n">In</th><th class="n">Out</th><th class="n hm">Net</th><th class="n">Balance</th><th>Checked</th></tr></thead><tbody>${days.map(d => {
       const de = acctEv.filter(e => e.date === d && e.type !== "open"), inn = de.filter(e => e.amt > 0).reduce((s, e) => s + e.amt, 0), out = -de.filter(e => e.amt < 0).reduce((s, e) => s + e.amt, 0), bal = d <= t ? balanceAt(ev, k, d) : null, ck = isChecked(k, d);
-      return `<tr${d === t ? ' class="today-row"' : ""}><td>${fmtDate(d, { weekday: "short", month: "short", day: "numeric" })}</td><td class="n">${inn ? money(inn) : "—"}</td><td class="n">${out ? money(out) : "—"}</td><td class="n ${inn - out < 0 ? "neg" : ""}">${inn || out ? money(inn - out) : "—"}</td><td class="n"><b>${bal == null ? "—" : money(bal)}</b></td>
-        <td>${d <= t ? `<button type="button" class="btn sm ${ck ? "" : "ghost"}" data-act="mCheck" data-k="${d}" aria-pressed="${ck}">${ck ? "✓ Checked" : "Mark checked"}</button>` : ""}</td></tr>`; }).join("")}
-      <tr class="total"><td>Week total</td><td class="n">${money(acctEv.filter(e => e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(-acctEv.filter(e => e.amt < 0).reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(acctEv.filter(e => e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${balanceAt(ev, k, we < t ? we : t) == null ? "—" : money(balanceAt(ev, k, we < t ? we : t))}</td><td></td></tr></tbody></table></div></div>`;
+      return `<tr${d === t ? ' class="today-row"' : ""}><td>${fmtDate(d, { weekday: "short", month: "short", day: "numeric" })}</td><td class="n">${inn ? money(inn) : "—"}</td><td class="n">${out ? money(out) : "—"}</td><td class="n hm ${inn - out < 0 ? "neg" : ""}">${inn || out ? money(inn - out) : "—"}</td><td class="n"><b>${bal == null ? "—" : money(bal)}</b></td>
+        <td>${d <= t ? `<button type="button" class="btn sm ${ck ? "" : "ghost"}" data-act="mCheck" data-k="${d}" aria-pressed="${ck}" aria-label="${ck ? "Checked" : "Mark checked"}">${ck ? "✓<span class=\"hm\"> Checked</span>" : "Check<span class=\"hm\"> as counted</span>"}</button>` : ""}</td></tr>`; }).join("")}
+      <tr class="total"><td>Week total</td><td class="n">${money(acctEv.filter(e => e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(-acctEv.filter(e => e.amt < 0).reduce((s, e) => s + e.amt, 0))}</td><td class="n hm">${money(acctEv.filter(e => e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${balanceAt(ev, k, we < t ? we : t) == null ? "—" : money(balanceAt(ev, k, we < t ? we : t))}</td><td></td></tr></tbody></table></div></div>`;
   // money in grid per technician
   const ins = acctEv.filter(e => e.type === "in"), techs = [...new Set(ins.map(e => e.tech))].sort();
   html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} received</h2><span class="note">From bookings, by technician${k === "cash" ? ' · <span class="pill low">not remitted</span> = still with the technician' : ""}</span></div>${ins.length ? `<div class="tbl-wrap"><table class="mgrid"><thead><tr><th>Technician</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
@@ -2125,7 +2134,8 @@ document.addEventListener("click", async (ev) => {
       case "delRun": if (armed(b)) { await S.db.doc("payroll/" + id).delete(); closeDialog(); toast("Pay run deleted"); } break;
       case "newExpense": expenseDialog(); break;
       case "mWeek": ui.mWeek = +k ? addDays(ui.mWeek || mondayOf(todayStr()), +k) : mondayOf(todayStr()); render(); break;
-      case "mAcct": ui.mAcct = k; render(); break;
+      case "mAcct": ui.mAcct = k; ui.mMore = 0; render(); break;
+      case "mMore": ui.mMore = 1; render(); break;
       case "mOpening": openingDialog(k); break;
       case "moveMoney": moveDialog(); break;
       case "editMove": moveDialog(find("moneylog", id)); break;
