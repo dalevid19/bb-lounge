@@ -1354,13 +1354,15 @@ function vPayroll() {
       <td><span class="pill ${runStatus(p)[1]}">${runStatus(p)[0]}</span>${paidChips(p)}</td><td class="act"><button class="btn sm ghost" data-act="viewRun" data-id="${p.id}">Payslips</button></td></tr>`; }, g => "Take-home " + money(g.reduce((a, p) => a + num(p.totalNet), 0)))}
     </tbody></table></div></div>`;
   }
-  const yr = ui.year, rows = {};
-  S.payroll.filter(p => (p.periodEnd || "").startsWith(yr)).forEach(p => (p.lines || []).forEach(l => { const r = rows[l.staffId] = rows[l.staffId] || { name: l.name, basic: 0, weeks: 0, paid: 0 }; r.basic += num(l.basic); r.weeks++; r.paid += num(l.thirteenth); }));
-  const list = Object.entries(rows).sort((a, b) => b[1].basic - a[1].basic);
-  return html + `<div class="panel"><div class="ph"><h2>13th month pay, ${yr}</h2><select id="yrSel" aria-label="Year">${[...new Set([todayStr().slice(0, 4), ...S.payroll.map(p => (p.periodEnd || "").slice(0, 4))])].filter(Boolean).sort().reverse().map(y => `<option ${y === yr ? "selected" : ""}>${y}</option>`).join("")}</select></div>
-    <div class="pb note" style="padding-bottom:0">Total basic pay earned in the year divided by 12, as required by law (PD 851). Overtime, commission and tips are not included. Due on or before December 24.</div>
-    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Staff</th><th class="n">Weeks paid</th><th class="n">Basic pay, ${yr}</th><th class="n">13th month earned</th><th class="n">Already given weekly</th><th class="n">Still due</th></tr></thead><tbody>${list.map(([, r]) => `<tr><td>${esc(r.name)}</td><td class="n">${r.weeks}</td><td class="n">${money(r.basic)}</td><td class="n">${money(r.basic / 12)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.basic / 12 - r.paid))}</b></td></tr>`).join("")}
-    <tr class="total"><td>Total</td><td></td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0))}</td><td class="n">${money(list.reduce((a, [, r]) => a + r.basic, 0) / 12)}</td><td class="n">${money(list.reduce((a, [, r]) => a + r.paid, 0))}</td><td class="n">${money(list.reduce((a, [, r]) => a + Math.max(0, r.basic / 12 - r.paid), 0))}</td></tr></tbody></table></div>` : `<div class="empty">No pay runs saved for ${yr} yet.</div>`}</div>`;
+  const yr = ui.year, wEnd = `${yr}-11-30`, w = thWindow(wEnd);
+  const ids = [...new Set([...S.staff.filter(x => x.active !== false).map(x => x.id), ...S.payroll.flatMap(p => (p.lines || []).map(l => l.staffId))])].filter(Boolean);
+  const list = ids.map(id => ({ id, st: staffById(id) || { name: (S.payroll.flatMap(p => p.lines || []).find(l => l.staffId === id) || {}).name || id }, r: th13(id, null, wEnd) })).filter(x => x.r.earned || x.r.paid || x.st.active !== false).sort((a, b) => b.r.due - a.r.due || (a.st.name || "").localeCompare(b.st.name || ""));
+  const sum = (k) => list.reduce((a, x) => a + num(x.r[k]), 0);
+  const years = [...new Set([todayStr().slice(0, 4), ...S.payroll.map(p => (p.periodEnd || "").slice(0, 4))])].filter(Boolean).sort().reverse();
+  return html + `<div class="panel"><div class="ph"><h2>13th month pay · ${fmtDate(w[0], { month: "short", day: "numeric", year: "numeric" })} – ${fmtDate(w[1], { month: "short", day: "numeric", year: "numeric" })}</h2><select id="yrSel" aria-label="Year">${years.map(y => `<option value="${y}" ${y === yr ? "selected" : ""}>Up to Nov ${y}</option>`).join("")}</select></div>
+    <div class="pb note" style="padding-bottom:0">Each person earns 1/12 of their basic pay, counted from their date hired (or Dec 1) up to Nov 30. Overtime, commission and tips are not included. "Paid" adds what was given in pay runs and 13th month payments recorded in Expenses. Set each person's date hired in Staff → Edit.</div>
+    ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>Staff</th><th>Date hired</th><th>Counted from</th><th class="n">Basic pay</th><th class="n">13th month earned</th><th class="n">Paid</th><th class="n">Still due</th></tr></thead><tbody>${list.map(({ st, r }) => `<tr><td><b>${esc(st.name || "")}</b><div class="meta">${esc(st.role || "")}</div></td><td>${st.hired ? fmtDate(st.hired, { month: "short", day: "numeric", year: "numeric" }) : '<span class="pill low">Not set</span>'}</td><td>${fmtDate(r.from, { month: "short", day: "numeric", year: "numeric" })}</td><td class="n">${money(r.basic)}</td><td class="n">${money(r.earned)}</td><td class="n">${money(r.paid)}${r.paidSeparately ? `<div class="meta">${money(r.paidSeparately)} in Expenses</div>` : ""}</td><td class="n"><b>${money(r.due)}</b></td></tr>`).join("")}
+    <tr class="total"><td colspan="3">Total</td><td class="n">${money(sum("basic"))}</td><td class="n">${money(sum("earned"))}</td><td class="n">${money(sum("paid"))}</td><td class="n">${money(sum("due"))}</td></tr></tbody></table></div>` : `<div class="empty">No pay runs saved for this period yet.</div>`}</div>`;
 }
 function staffTable(admin) {
   if (!S.staff.length) return `<div class="panel"><div class="empty"><b>No staff yet</b>Add your technicians and admin with their daily rate, OT rate and commission. They'll appear in the booking form right away.${admin ? '<div class="actions"><button class="btn primary" data-act="newStaff">Add staff</button></div>' : ""}</div></div>`;
@@ -1370,6 +1372,20 @@ function staffTable(admin) {
       return `<tr><td><b>${esc(s.name)}</b>${s.phone ? `<div class="meta">${esc(s.phone)}</div>` : ""}</td><td>${esc(s.role || "Technician")}</td>${admin ? `<td class="n">${money(p.dailyRate)}</td><td class="n">${money(p.otRate)}</td>` : ""}<td class="n">${num(s.commRate ?? commDefault())}%</td><td class="n">${n}</td>
       <td>${s.active === false ? '<span class="pill">Inactive</span>' : '<span class="pill ok">Active</span>'}</td><td class="act">${admin ? `<button class="btn sm ghost" data-act="editStaff" data-id="${s.id}">Edit</button>` : ""}</td></tr>`; }).join("")}
   </tbody></table></div></div>`;
+}
+// 13th month: earned as 1/12 of basic pay, counted from Dec 1 of the previous year (or the date hired, if later) up to Nov 30.
+// Each pay run records what was earned that week (thAccrued) and what was actually paid (thirteenth); anything unpaid carries over.
+function thWindow(d) { const y = +d.slice(0, 4), m = +d.slice(5, 7); const startY = m === 12 ? y : y - 1; return [`${startY}-12-01`, `${startY + 1}-11-30`]; }
+const thAcc = (l) => l.thAccrued != null ? num(l.thAccrued) : num(l.basic) / 12;
+function th13(sid, before, wd, weeklyOnly) {
+  const st = staffById(sid) || {}, w = thWindow(wd || before || todayStr()), from = st.hired && st.hired > w[0] ? st.hired : w[0];
+  let earned = 0, paid = 0, basic = 0;
+  S.payroll.forEach(p => (p.lines || []).forEach(l => { if (l.staffId !== sid) return; const ps = l.periodStart || p.periodStart, pe = l.periodEnd || p.periodEnd;
+    if ((before && ps >= before) || pe < from || ps > w[1] || (weeklyOnly && l.thAccrued == null)) return; basic += num(l.basic); earned += thAcc(l); paid += num(l.thirteenth); }));
+  const nm = (st.name || "").toLowerCase(), keys = [sid.toLowerCase(), nm.split(/[\s(]/)[0].slice(0, 3)].filter(k => k.length >= 3);
+  const paidSeparately = S.expenses.filter(e => /13th/i.test(e.category || "") && e.date >= w[0] && e.date <= w[1] && (!before || e.date < before) && keys.some(k => (e.item || "").toLowerCase().includes(k))).reduce((a, e) => a + num(e.amount), 0);
+  if (!weeklyOnly) paid += paidSeparately;
+  return { from, to: w[1], basic, earned: r2(earned), paid: r2(paid), paidSeparately, due: r2(Math.max(0, earned - paid)) };
 }
 const govOf = (l) => num(l.sss) + num(l.philhealth) + num(l.pagibig) + num(l.benefits);
 
@@ -2065,7 +2081,8 @@ function staffDialog(s) {
   openDialog(isNew ? "Add staff" : "Edit " + s.name, `
     <div class="fields"><label class="f">Name<input class="inp" name="name" required value="${esc(s.name || "")}"></label>
     <label class="f">Role<select name="role">${["Technician", "Admin"].map(r => `<option ${s.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></label>
-    <label class="f">Phone<input class="inp" name="phone" value="${esc(s.phone || "")}"></label></div>
+    <label class="f">Phone<input class="inp" name="phone" value="${esc(s.phone || "")}"></label>
+    <label class="f">Date hired<input class="inp" name="hired" type="date" value="${esc(s.hired || "")}"></label></div>
     <div class="fields"><label class="f">Daily rate<input class="inp" name="dailyRate" type="number" step="0.01" min="0" value="${p.dailyRate ?? ""}"></label>
     <label class="f">OT per hour<input class="inp" name="otRate" type="number" step="0.01" min="0" value="${p.otRate ?? ""}"></label>
     <label class="f">Commission %<input class="inp" name="commRate" type="number" step="0.5" min="0" value="${s.commRate ?? commDefault()}"></label>
@@ -2073,7 +2090,7 @@ function staffDialog(s) {
     <p class="note" style="margin:0">Daily rate and OT rate are private: only you and editors can see them.</p>`,
     footBtns(isNew, isNew ? "Add staff" : "Save changes", "delStaff", s.id),
     async () => {
-      const data = { name: fv("name"), role: fv("role"), phone: fv("phone"), commRate: num(fv("commRate")), active: fv("active") === "1", updatedAt: now() };
+      const data = { name: fv("name"), role: fv("role"), phone: fv("phone"), hired: fv("hired"), commRate: num(fv("commRate")), active: fv("active") === "1", updatedAt: now() };
       let id = s.id;
       if (isNew) { data.createdAt = data.updatedAt; id = (await S.db.collection("staff").add(data)).id; } else await S.db.doc("staff/" + id).update(data);
       await S.db.doc("staffpay/" + id).set({ dailyRate: num(fv("dailyRate")), otRate: num(fv("otRate")) });
@@ -2100,8 +2117,14 @@ function timesSummary(tr) {
   const late = tr.querySelector('[name="late"]'); if (!late.dataset.manual) late.value = lateH ? r2(lateH * hourly) : "";
   tr.dataset.times = JSON.stringify(times);
   tr.querySelector(".tsum").textContent = days ? `${days} day${days === 1 ? "" : "s"}${ot ? ` · OT ${ot} h` : ""}${lateH ? ` · late/under ${lateH} h` : ""}` : "Enter times";
-  const th = tr.querySelector('[name="th"]'); if (th && !th.dataset.manual) th.value = (tr.dataset.role || "Technician") === "Admin" ? "" : r2(days * num(p.dailyRate) / 12) || "";
+  tr.dataset.thw = r2(days * num(p.dailyRate) / 12); thRefresh(tr);
 }
+function thRefresh(tr) {
+  const th = tr.querySelector('[name="th"]'), pay = tr.querySelector('[name="thPay"]').checked, wk = num(tr.dataset.thw), carry = num(tr.dataset.thc), due = r2(wk + carry);
+  th.disabled = !pay; if (!th.dataset.manual || !pay) th.value = pay && due ? due : "";
+  tr.querySelector(".thinfo").textContent = `This week ${money(wk)}${carry ? ` + carried ${money(carry)}` : ""}${pay ? "" : " · carried to next pay"}`;
+}
+function thCarryAll() { const ps = fv("ps"); dform.querySelectorAll("#payLines tr[data-sid]").forEach(tr => { tr.dataset.thc = th13(tr.dataset.sid, ps, null, true).due; /* only weeks tracked in pay runs carry over */ thRefresh(tr); }); }
 function drawTimes() {
   const ps = fv("ps"); if (!ps) return;
   dform.querySelectorAll("tr.tdays").forEach(row => {
@@ -2120,14 +2143,14 @@ function payrollDialog() {
     <div class="tbl-wrap"><table class="lines paylines"><thead><tr><th>Staff</th><th>Time in / out</th><th>OT hrs</th><th>Commission</th><th>13th month</th><th>Cash adv. / backjob</th><th>Late / undertime</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th class="n">Take-home</th></tr></thead><tbody id="payLines">
       ${staff.map(s => { const p = payOf(s.id); return `<tr data-sid="${s.id}" data-role="${esc(s.role || "Technician")}"><td style="white-space:nowrap"><b>${esc(s.name)}</b><div class="meta">${money(p.dailyRate)}/day · OT ${money(p.otRate)}/h</div></td>
         <td><button type="button" class="btn sm" data-act="payTimes" data-k="${s.id}"><span class="tsum">Enter times</span></button><input type="hidden" name="days"></td>
-        ${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}${cell("th", "", "13th month pay")}${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
+        ${cell("ot", "", "Overtime hours")}${cell("comm", 0, "Commission")}<td class="thcell"><label class="check note" style="white-space:nowrap"><input type="checkbox" name="thPay" ${(s.role || "Technician") === "Admin" ? "" : "checked"}> Pay now</label><input class="inp" name="th" type="number" step="any" min="0" aria-label="13th month pay" style="min-width:70px"><div class="meta thinfo"></div></td>${cell("ca", "", "Cash advance or backjob")}${cell("late", "", "Late or undertime")}${cell("sss", "", "SSS")}${cell("ph", "", "PhilHealth")}${cell("pi", "", "Pag-IBIG")}
         <td class="n num" data-net>${money(0)}</td></tr>
         <tr class="tdays" data-for="${s.id}" hidden><td colspan="11"><div class="tgrid"></div></td></tr>`; }).join("")}
     </tbody></table></div>
-    <p class="note" style="margin:0">13th month pay is added every week for technicians as 1/12 of that week's basic pay; change it if needed. Pending backjobs are filled into "Cash adv. / backjob" and marked deducted when you save. SSS, PhilHealth and Pag-IBIG here are the employee's share taken from pay.</p>`,
+    <p class="note" style="margin:0">13th month: each person earns 1/12 of their basic pay every week (from their date hired, counted Dec 1 – Nov 30). Tick <b>Pay now</b> to pay it this cut-off, including anything carried over; untick it and the amount carries to the next pay run. Pending backjobs are filled into "Cash adv. / backjob" and marked deducted when you save. SSS, PhilHealth and Pag-IBIG here are the employee's share taken from pay.</p>`,
     `<span class="total" id="payTotal"></span><button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Save pay run</button>`,
     async () => {
-      const lines = [...dform.querySelectorAll("#payLines tr[data-sid]")].map(tr => payLine(tr)).filter(l => l.gross || l.cashAdvance || l.late || l.thirteenth);
+      const lines = [...dform.querySelectorAll("#payLines tr[data-sid]")].map(tr => payLine(tr)).filter(l => l.gross || l.cashAdvance || l.late || l.thirteenth || l.thAccrued);
       if (!lines.length) throw { message: "Enter time in and time out for at least one person." };
       const sum = k => r2(lines.reduce((a, l) => a + num(l[k]), 0));
       const bjs = lines.flatMap(l => pendingBackjobs(l.staffId, [fv("ps"), fv("pe")]));
@@ -2135,12 +2158,12 @@ function payrollDialog() {
       await S.db.collection("payroll").add({ periodStart: fv("ps"), periodEnd: fv("pe"), lines, totalGross: sum("gross"), totalNet: sum("net"), totalGov: r2(lines.reduce((a, l) => a + govOf(l), 0)), paid: false, createdAt: now() });
       ui.payTab = "runs"; toast("Pay run saved");
     }, true);
-  drawTimes(); fillPayAuto(); recalcPay();
+  drawTimes(); thCarryAll(); fillPayAuto(); recalcPay();
 }
 function payLine(tr) {
   const s = staffById(tr.dataset.sid) || {}, p = payOf(tr.dataset.sid), g = n => { const el = tr.querySelector(`[name="${n}"]`); return el ? num(el.value) : 0; };
   const days = g("days"), otH = g("ot"), basic = r2(days * num(p.dailyRate)), otPay = r2(otH * num(p.otRate)), comm = g("comm");
-  const gross = r2(basic + otPay + comm), l = { staffId: s.id, name: s.name, role: s.role || "Technician", dailyRate: num(p.dailyRate), otRate: num(p.otRate), days, otHours: otH, basic, otPay, commission: comm, tips: 0, gross, cashAdvance: g("ca"), late: g("late"), sss: g("sss"), philhealth: g("ph"), pagibig: g("pi"), thirteenth: g("th") };
+  const gross = r2(basic + otPay + comm), l = { staffId: s.id, name: s.name, role: s.role || "Technician", dailyRate: num(p.dailyRate), otRate: num(p.otRate), days, otHours: otH, basic, otPay, commission: comm, tips: 0, gross, cashAdvance: g("ca"), late: g("late"), sss: g("sss"), philhealth: g("ph"), pagibig: g("pi"), thAccrued: num(tr.dataset.thw), thirteenth: tr.querySelector('[name="thPay"]') && tr.querySelector('[name="thPay"]').checked ? g("th") : 0 };
   try { const tm = JSON.parse(tr.dataset.times || "[]"); if (tm.length) l.times = tm; } catch { }
   l.salaryNet = r2(gross - l.cashAdvance - l.late - govOf(l));
   l.net = r2(l.salaryNet + l.thirteenth);
@@ -2173,8 +2196,9 @@ function runDialog(p) {
     ${num(l.sss) + num(l.philhealth) + num(l.pagibig) ? `<div class="row"><span>Less SSS ${money(l.sss)} · PhilHealth ${money(l.philhealth)} · Pag-IBIG ${money(l.pagibig)}</span><span class="num">−${money(num(l.sss) + num(l.philhealth) + num(l.pagibig))}</span></div>` : ""}
     ${num(l.benefits) ? `<div class="row"><span>Less benefits, employee share</span><span class="num">−${money(l.benefits)}</span></div>` : ""}
     ${num(l.other) ? `<div class="row"><span>${num(l.other) > 0 ? "Other additions (incentive, abono)" : "Other deductions"}</span><span class="num">${num(l.other) > 0 ? "+" : "−"}${money(Math.abs(num(l.other)))}</span></div>` : ""}
+    ${!num(l.thirteenth) && num(l.thAccrued) ? `<div class="row"><span class="note">13th month earned this week ${money(l.thAccrued)} · not paid this cut-off, carried over</span><span></span></div>` : ""}
     ${num(l.thirteenth) ? `<div class="row"><b>Salary take-home</b><b class="num">${money(num(l.net) - num(l.thirteenth))}</b></div>
-    <div class="row"><span>13th month pay <span class="note">(1/12 of this week's basic, given weekly)</span></span><span class="num">+${money(l.thirteenth)}</span></div>
+    <div class="row"><span>13th month pay <span class="note">(this week ${money(thAcc(l))}${num(l.thirteenth) - thAcc(l) > 0.5 ? ` + carried ${money(num(l.thirteenth) - thAcc(l))}` : ""})</span></span><span class="num">+${money(l.thirteenth)}</span></div>
     <div class="row"><b>Total received (salary + 13th month)</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div>` : `<div class="row"><b>Take-home pay</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div>`}
     ${(l.times || []).length ? `<details style="margin-top:6px"><summary class="note" style="cursor:pointer">Time in / out (${l.times.length} day${l.times.length === 1 ? "" : "s"})</summary><div class="note" style="line-height:1.8">${l.times.map(x => `${fmtDate(x.d, { weekday: "short", month: "short", day: "numeric" })}: ${fmtTime(x.in)} – ${fmtTime(x.out)}`).join("<br>")}</div></details>` : ""}</div></div></div>`;
   openDialog(`Payslips · ${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}`, `<div class="grid cols-2">${L.map(slip).join("")}</div><p class="note" style="margin:0">Total take-home <b class="num">${money(p.totalNet)}</b> for ${L.length} staff.</p>`,
@@ -2400,6 +2424,7 @@ document.addEventListener("input", (ev) => {
   else if (dform.contains(t) && $("#payLines", dform)) {
     if (t.dataset.t) { const row = t.closest("tr.tdays"); timesSummary(dform.querySelector(`#payLines tr[data-sid="${row.dataset.for}"]`)); }
     else if (t.name === "late" || t.name === "th" || t.name === "ot") t.dataset.manual = t.value === "" ? "" : "1";
+    else if (t.name === "thPay") { const row = t.closest("tr[data-sid]"); row.querySelector('[name="th"]').dataset.manual = ""; thRefresh(row); }
     recalcPay();
   }
 });
@@ -2422,7 +2447,7 @@ document.addEventListener("change", (ev) => {
     drawLines(); return;
   }
   if (dform.contains(t) && t.name === "client") { const c = clientList().find(x => x.name.toLowerCase() === t.value.trim().toLowerCase()); if (c) { if (!fv("phone")) dform.elements.phone.value = c.phone; if (!fv("address")) dform.elements.address.value = c.address; } }
-  if (dform.contains(t) && (t.name === "ps" || t.name === "pe")) { if (t.name === "ps" && t.value) dform.elements.pe.value = addDays(t.value, 6); if (t.name === "ps") drawTimes(); fillPayAuto(); recalcPay(); }
+  if (dform.contains(t) && (t.name === "ps" || t.name === "pe")) { if (t.name === "ps" && t.value) dform.elements.pe.value = addDays(t.value, 6); if (t.name === "ps") { drawTimes(); thCarryAll(); } fillPayAuto(); recalcPay(); }
   if (dform.contains(t) && (t.name === "techId" || t.name === "techId2") && $("#bkLines", dform)) { syncLines(); drawLines(); }
   else if (dform.contains(t) && t.name === "backjob") recalcBooking();
   if (dform.contains(t) && t.name === "dpPaid") { const on = t.value === "1"; dform.elements.dpAmount.disabled = !on; dform.elements.dpMethod.disabled = !on; if (on) dform.elements.dpAmount.focus(); recalcBooking(); }
