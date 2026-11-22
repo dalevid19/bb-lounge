@@ -148,6 +148,9 @@ textarea { width: 100%; resize: vertical; }
 .trip i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .trip.at i { animation: tripPulse 1.6s ease-in-out infinite; }
 @keyframes tripPulse { 50% { opacity: .3; } }
+tr.zebra, tr.zebra > td { background: color-mix(in srgb, var(--ink) 6%, var(--surface)); }
+.appt.zebra { background: color-mix(in srgb, var(--ink) 6%, var(--surface)); border-radius: 10px; padding-left: 8px; padding-right: 8px; }
+.appt { padding-left: 8px; padding-right: 8px; }
 .appt.soon { background: color-mix(in srgb, var(--accent) 9%, transparent); border-radius: 10px; padding-left: 8px; padding-right: 8px; }
 .remind { position: fixed; z-index: 90; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 12px); width: min(560px, calc(100% - 24px)); display: grid; gap: 8px; }
 .remind .rc { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: start; padding: 14px 16px; border-radius: 16px; background: var(--ink); color: var(--bg); box-shadow: 0 18px 40px -16px rgba(0,0,0,.55); animation: remIn .35s ease-out; }
@@ -275,6 +278,7 @@ body.locked .app { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 1150px) { .today { grid-template-columns: repeat(2, minmax(0, 1fr)); } .today > div:nth-child(3) { border-left: 0; } .today > div:nth-child(n+3) { border-top: 1px solid color-mix(in srgb, var(--accent-ink) 22%, transparent); } .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } .kpi:nth-child(4) { border-left: 0; } .kpi:nth-child(n+4) { border-top: 1px solid var(--line); } }
 .mhead, .mbar, .msheet { display: none; }
 @media (max-width: 860px) {
+  tr.zebra > td { background: transparent; }
   .app { grid-template-columns: minmax(0, 1fr); }
   .rail, .topbar { display: none; }
   body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
@@ -818,11 +822,11 @@ const tripBtns = (b) => b.status !== "booked" ? "" : b.trip === "arrived" ? `<bu
 function apptList(list, emptyMsg) {
   if (!list.length) return `<div class="note">${emptyMsg}</div>`;
   let html = "", day = "";
-  const nowMs = Date.now();
+  const nowMs = Date.now(); let zi = 0;
   list.forEach(b => {
     if (b.date !== day) { day = b.date; html += `<div class="dayhead">${b.date === todayStr() ? "Today · " : ""}${fmtDay(b.date)}</div>`; }
     const st = startOf(b), mins = st ? Math.round((st - nowMs) / 60000) : null, soon = b.status === "booked" && mins != null && mins <= 30 && mins >= -60;
-    html += `<div class="appt${soon ? " soon" : ""}"><div class="t">${fmtTime(b.time) || "—"}${soon && !b.trip ? `<div class="meta" style="color:var(--warn);font-weight:700">${mins > 0 ? "in " + mins + " min" : "now"}</div>` : ""}</div><div class="c"><b>${esc(b.client || "Client")}</b><span>${esc(svcSummary(b))} · ${esc(techName(b))}${b.address ? " · " + esc(b.address.split(/\n/)[0].slice(0, 60)) : ""}</span>${tripPill(b) ? `<div>${tripPill(b)}</div>` : ""}</div>
+    html += `<div class="appt${soon ? " soon" : zi++ % 2 ? " zebra" : ""}"><div class="t">${fmtTime(b.time) || "—"}${soon && !b.trip ? `<div class="meta" style="color:var(--warn);font-weight:700">${mins > 0 ? "in " + mins + " min" : "now"}</div>` : ""}</div><div class="c"><b>${esc(b.client || "Client")}</b><span>${esc(svcSummary(b))} · ${esc(techName(b))}${b.address ? " · " + esc(b.address.split(/\n/)[0].slice(0, 60)) : ""}</span>${tripPill(b) ? `<div>${tripPill(b)}</div>` : ""}</div>
       <div class="actions">${tripBtns(b)}<button class="btn sm" data-act="markDone" data-id="${b.id}">Done</button><button class="btn sm ghost" data-act="editBooking" data-id="${b.id}">Open</button></div></div>`;
   });
   return html;
@@ -921,8 +925,9 @@ function vBookings() {
   html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">${tabs.map(([k, l]) => `<button type="button" data-act="bkTab" data-k="${k}" aria-pressed="${ui.bkTab === k}">${l}</button>`).join("")}</div>${ui.bkTab !== "upcoming" ? periodSeg() : ""}${techFilter()}</div><input type="search" id="bkQ" placeholder="Search client, number, tech, service" value="${esc(ui.bkQ)}" aria-label="Search bookings"></div>`;
   if (!rows.length) return html + `<div class="empty"><b>${S.bookings.length ? "Nothing here" : "No bookings yet"}</b>${S.bookings.length ? "Try another tab, a wider period, or clear the search." : "Record your first client. Past dates are saved as completed; future dates go on the schedule."}<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   if (ui.bkTab === "upcoming") return html + `<div class="pb">${apptList(rows, "")}</div></div>`;
+  let zi = 0;
   html += `<div class="tbl-wrap"><table><thead><tr><th>Time</th><th>Client</th><th>Services</th><th>Tech</th><th class="n">Service</th><th class="n">Transpo</th><th class="n">Commission</th><th>Paid</th><th></th></tr></thead><tbody>
-    ${grouped(rows.slice(0, 80 + (ui.more || 0)), b => b.date, (d, g) => `${fmtDate(d, { weekday: "long", month: "long", day: "numeric" })} · ${g.length} client${g.length === 1 ? "" : "s"}`, 9, b => { const bal = r2(amountDue(b) - paidTotal(b)); return `<tr><td>${b.time ? fmtTime(b.time) : '<span class="note">—</span>'}</td>
+    ${grouped(rows.slice(0, 80 + (ui.more || 0)), b => b.date, (d, g) => `${fmtDate(d, { weekday: "long", month: "long", day: "numeric" })} · ${g.length} client${g.length === 1 ? "" : "s"}`, 9, b => { const bal = r2(amountDue(b) - paidTotal(b)); return `<tr class="${zi++ % 2 ? "zebra" : ""}"><td>${b.time ? fmtTime(b.time) : '<span class="note">—</span>'}</td>
       <td><b>${esc(b.client || "Client")}</b>${b.visit ? ` <span class="pill acc">${esc(b.visit)} visit</span>` : ""}${b.phone ? `<div class="meta">${esc(b.phone)}</div>` : ""}</td>
       <td>${esc(svcSummary(b))}${b.backjob ? ' <span class="pill low">Backjob</span>' : ""}${b.notes ? `<div class="meta">${esc(b.notes.slice(0, 120))}</div>` : ""}${num(b.discount) ? `<div class="meta">Less ${money(b.discount)}</div>` : ""}</td>
       <td>${esc(techName(b))}</td><td class="n">${money(svcTotal(b))}</td><td class="n">${trCell(b)}</td><td class="n">${money(commission(b))}${b.techId2 ? `<div class="meta">${Object.entries(techShares(b)).map(([t, o]) => `${esc(((staffById(t) || {}).name || "?").split(" ")[0])} ${money(o.comm)}`).join(" · ")}</div>` : ""}</td>
