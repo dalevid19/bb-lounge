@@ -176,6 +176,12 @@ tr.zebra, tr.zebra > td { background: color-mix(in srgb, var(--ink) 6%, var(--su
 .ckbtn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .sm-only { display: none; }
 @media (max-width: 860px) { .mday .btn.ckbtn { min-width: 0; font-size: 12px; padding: 5px 8px; min-height: 0; } .mday td, .mday th { font-size: 12px; padding: 8px 5px; } .mday .sm-only { display: inline; } .mday td:first-child, .mday th:first-child { padding-left: 10px; } }
+.calpick { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); }
+.calpick svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.calpick input[type="date"] { font: inherit; font-size: 14px; border: 0; background: transparent; color: var(--ink); padding: 4px 2px; min-width: 0; max-width: 150px; }
+.calpick .to { font-size: 12px; }
+.calpick.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--accent); }
+@media (max-width: 860px) { .calpick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; width: 100%; gap: 4px; } .calpick input[type="date"] { max-width: none; width: 100%; font-size: 13px; } label.calpick { grid-template-columns: auto minmax(0, 1fr); } }
 .linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 @media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -517,11 +523,15 @@ function periodRange(p) {
   if (p === "lastmonth") { const d = parseD(t.slice(0, 7) + "-01"); d.setMonth(d.getMonth() - 1); const s = iso(d); const e = addDays(t.slice(0, 7) + "-01", -1); return [s, e, d.toLocaleDateString("en-PH", { month: "long", year: "numeric" })]; }
   if (p === "year") return [t.slice(0, 4) + "-01-01", t.slice(0, 4) + "-12-31", "This year"];
   if (p === "all") return ["0000", "9999", "All time"];
+  if (p === "custom" && ui.pFrom) { const a = ui.pFrom, b = ui.pTo || ui.pFrom; return [a, b, a === b ? fmtDate(a, { weekday: "short", month: "long", day: "numeric", year: "numeric" }) : `${fmtDate(a, { month: "short", day: "numeric" })} – ${fmtDate(b, { month: "short", day: "numeric", year: "numeric" })}`]; }
   return [t.slice(0, 7) + "-01", t.slice(0, 7) + "-31", "This month"];
 }
 const inR = (d, [a, b]) => (d || "") >= a && (d || "") <= b;
+const dateOn = () => ui.period === "custom" && !!ui.pFrom;
+const dateOk = (d) => !dateOn() || inR(d, periodRange("custom"));
+const calPick = () => `<span class="calpick${dateOn() ? " on" : ""}" title="Pick one day, or a start and end date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><input type="date" data-dp="from" aria-label="From date" value="${esc(dateOn() ? ui.pFrom : "")}"><span class="to">to</span><input type="date" data-dp="to" aria-label="To date (optional)" value="${esc(dateOn() && ui.pTo !== ui.pFrom ? ui.pTo : "")}">${dateOn() ? '<button type="button" class="btn sm ghost" data-act="dpClear">Clear</button>' : ""}</span>`;
 const PERIODS = [["today", "Today"], ["week", "This week"], ["month", "This month"], ["lastmonth", "Last month"], ["year", "Year"], ["all", "All"]];
-const periodSeg = (exclude = []) => `<div class="seg" role="group" aria-label="Period">${PERIODS.filter(([k]) => !exclude.includes(k)).map(([k, l]) => `<button type="button" data-act="period" data-k="${k}" aria-pressed="${ui.period === k}">${l}</button>`).join("")}</div>`;
+const periodSeg = (exclude = []) => `<div class="seg" role="group" aria-label="Period">${PERIODS.filter(([k]) => !exclude.includes(k)).map(([k, l]) => `<button type="button" data-act="period" data-k="${k}" aria-pressed="${ui.period === k}">${l}</button>`).join("")}</div>${calPick()}`;
 
 /* ---------- app login (PIN) ---------- */
 const ROLES = { owner: "Owner", hr: "HR & payroll", staff: "Staff" };
@@ -714,6 +724,15 @@ function checkReminders() {
   el.hidden = false;
   if (fresh) chime();
 }
+document.addEventListener("change", (ev) => {
+  const t = ev.target; if (!t || !t.dataset) return;
+  if (t.dataset.dp) {
+    const box = t.closest(".calpick"), f = box.querySelector('[data-dp="from"]').value, to = box.querySelector('[data-dp="to"]').value;
+    if (!f && !to) { ui.period = "month"; ui.pFrom = ui.pTo = ""; }
+    else { let a = f || to, b = to || f; if (b < a) [a, b] = [b, a]; ui.pFrom = a; ui.pTo = b; ui.period = "custom"; }
+    ui.more = 0; render();
+  } else if (t.dataset.mgo && t.value) { ui.mWeek = mondayOf(t.value); render(); }
+});
 function render() {
   const locked = !!S.db && (!S.loaded.logins || (lockOn() && !ui.session));
   document.body.classList.toggle("locked", locked);
@@ -927,13 +946,13 @@ function vBookings() {
   const tabs = [["upcoming", "Upcoming"], ["done", "Completed"], ["cancelled", "Cancelled"]];
   const r = periodRange(ui.period);
   let rows = S.bookings.filter(b => (!ui.tech || hasTech(b, ui.tech)) && (!q || [b.client, b.phone, b.address, techName(b), svcSummary(b)].some(x => (x || "").toLowerCase().includes(q))));
-  if (ui.bkTab === "upcoming") rows = rows.filter(b => b.status === "booked").sort(byWhenAsc);
+  if (ui.bkTab === "upcoming") rows = rows.filter(b => b.status === "booked" && dateOk(b.date)).sort(byWhenAsc);
   else rows = rows.filter(b => b.status === ui.bkTab && inR(b.date, r)).sort(byWhenDesc);
   const overdue = S.bookings.filter(b => b.status === "booked" && b.date < t).length;
   const totals = rows.reduce((a, b) => (a.s += svcTotal(b), a.t += num(b.transpo), a.c += commission(b), a), { s: 0, t: 0, c: 0 });
   let html = head("Bookings", ui.bkTab === "upcoming" ? `${rows.length} booked${overdue ? ` · <b style="color:var(--warn)">${overdue} past date, not marked done</b>` : ""}` : `${ui.tech ? esc((staffById(ui.tech) || {}).name || "") + " · " : ""}${r[2]} · ${rows.length} bookings · <span class="num">${money(totals.s + totals.t)}</span>`,
     `<button class="btn" data-act="export" data-k="bookings">Export CSV</button>${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
-  html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">${tabs.map(([k, l]) => `<button type="button" data-act="bkTab" data-k="${k}" aria-pressed="${ui.bkTab === k}">${l}</button>`).join("")}</div>${ui.bkTab !== "upcoming" ? periodSeg() : ""}${techFilter()}</div><input type="search" id="bkQ" placeholder="Search client, number, tech, service" value="${esc(ui.bkQ)}" aria-label="Search bookings"></div>`;
+  html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">${tabs.map(([k, l]) => `<button type="button" data-act="bkTab" data-k="${k}" aria-pressed="${ui.bkTab === k}">${l}</button>`).join("")}</div>${ui.bkTab !== "upcoming" ? periodSeg() : calPick()}${techFilter()}</div><input type="search" id="bkQ" placeholder="Search client, number, tech, service" value="${esc(ui.bkQ)}" aria-label="Search bookings"></div>`;
   if (!rows.length) return html + `<div class="empty"><b>${S.bookings.length ? "Nothing here" : "No bookings yet"}</b>${S.bookings.length ? "Try another tab, a wider period, or clear the search." : "Record your first client. New bookings start as Booked; mark them done once the service is finished."}<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   if (ui.bkTab === "upcoming") return html + `<div class="pb">${apptList(rows, "")}</div></div>`;
   let zi = 0;
@@ -963,9 +982,9 @@ function clientList() {
 }
 function vClients() {
   const q = ui.clQ.toLowerCase();
-  const all = clientList(), rows = all.filter(c => !q || [c.name, c.phone, c.address].some(x => x.toLowerCase().includes(q))).sort((a, b) => b.last.localeCompare(a.last));
+  const all = clientList(), rows = all.filter(c => (!q || [c.name, c.phone, c.address].some(x => x.toLowerCase().includes(q))) && (!dateOn() || S.bookings.some(b => b.client && b.client.trim().toLowerCase() === c.name.toLowerCase() && dateOk(b.date)))).sort((a, b) => b.last.localeCompare(a.last));
   let html = head("Clients", `${all.length} clients · built from your bookings`);
-  html += `<div class="panel"><div class="ph"><input type="search" id="clQ" placeholder="Search name, number or address" value="${esc(ui.clQ)}" aria-label="Search clients"></div>`;
+  html += `<div class="panel"><div class="ph"><input type="search" id="clQ" placeholder="Search name, number or address" value="${esc(ui.clQ)}" aria-label="Search clients">${calPick()}</div>`;
   if (!rows.length) return html + `<div class="empty"><b>${all.length ? "No client matches" : "No clients yet"}</b>${all.length ? "Clear the search to see everyone." : "Every client you book is added here automatically, with their number and address saved for next time."}</div></div>`;
   return html + `<div class="tbl-wrap"><table><thead><tr><th>Client</th><th>Address</th><th class="n">Visits</th><th class="n">Total spent</th><th>Usual tech</th><th>Last visit</th><th></th></tr></thead><tbody>
     ${rows.map(c => { const fav = Object.entries(c.techs).sort((a, b) => b[1] - a[1])[0]; return `<tr><td><b>${esc(c.name)}</b>${c.phone ? `<div class="meta">${esc(c.phone)}</div>` : ""}</td><td style="max-width:320px"><span class="meta" style="color:var(--ink)">${esc(c.address.slice(0, 140))}</span></td><td class="n">${c.visits}</td><td class="n">${money(c.spent)}</td><td>${fav ? esc(fav[0]) : ""}</td><td>${fmtDate(c.last)}</td><td class="act"><button class="btn sm" data-act="bookAgain" data-k="${esc(c.key)}">Book again</button></td></tr>`; }).join("")}
@@ -1029,9 +1048,13 @@ function vPayroll() {
   html += `<div class="seg" role="group" aria-label="Payroll section" style="margin-bottom:14px">${tabs.map(([k, l]) => `<button type="button" data-act="payTab" data-k="${k}" aria-pressed="${ui.payTab === k}">${l}</button>`).join("")}</div>`;
   if (ui.payTab === "staff") return html + staffTable(true);
   if (ui.payTab === "runs") {
-    const runs = [...S.payroll].sort((a, b) => (b.periodStart || "").localeCompare(a.periodStart || ""));
+    const rr = dateOn() ? periodRange("custom") : null;
+    const over = (a, b) => (b || a || "") >= rr[0] && (a || "") <= rr[1];
+    const runs = [...S.payroll].filter(p => !rr || over(p.periodStart, p.periodEnd) || (p.lines || []).some(l => over(l.periodStart, l.periodEnd))).sort((a, b) => (b.periodStart || "").localeCompare(a.periodStart || ""));
+    const calBar = `<div class="toolbar" style="margin-bottom:12px">${calPick()}${rr ? `<span class="note">Pay runs covering ${esc(rr[2])}</span>` : ""}</div>`;
+    if (!runs.length && rr) return html + calBar + `<div class="panel"><div class="empty"><b>No pay runs cover ${esc(rr[2])}</b>Pick other dates or tap Clear.</div></div>`;
     if (!runs.length) return html + `<div class="panel"><div class="empty"><b>No pay runs yet</b>Run payroll at the end of each week. Commission is filled in from that week's completed bookings.</div></div>`;
-    return html + unpaidPanel(runs) + `<div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Week</th><th class="n">Staff</th><th class="n">Basic</th><th class="n">OT</th><th class="n">Commission</th><th class="n">Deductions</th><th class="n">Take-home</th><th>Status</th><th></th></tr></thead><tbody>
+    return html + calBar + unpaidPanel(runs) + `<div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Week</th><th class="n">Staff</th><th class="n">Basic</th><th class="n">OT</th><th class="n">Commission</th><th class="n">Deductions</th><th class="n">Take-home</th><th>Status</th><th></th></tr></thead><tbody>
       ${grouped(runs, p => weekInfo(p.periodStart).month, m => fmtDate(m + "-01", { month: "long", year: "numeric" }), 9, p => { const L = p.lines || [], s = k => L.reduce((a, l) => a + num(l[k]), 0); return `<tr><td>${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}<div class="meta">Week ${weekInfo(p.periodStart).n} of ${fmtDate(weekInfo(p.periodStart).month + "-01", { month: "long" })}</div></td><td class="n">${L.length}</td><td class="n">${money(s("basic"))}</td><td class="n">${money(s("otPay"))}</td><td class="n">${money(s("commission"))}</td><td class="n">${money(s("cashAdvance") + s("late") + L.reduce((a, l) => a + govOf(l), 0) - Math.min(0, L.reduce((a, l) => a + num(l.other), 0)))}</td><td class="n"><b>${money(p.totalNet)}</b></td>
       <td><span class="pill ${runStatus(p)[1]}">${runStatus(p)[0]}</span>${paidChips(p)}</td><td class="act"><button class="btn sm ghost" data-act="viewRun" data-id="${p.id}">Payslips</button></td></tr>`; }, g => "Take-home " + money(g.reduce((a, p) => a + num(p.totalNet), 0)))}
     </tbody></table></div></div>`;
@@ -1109,7 +1132,7 @@ function vMoney() {
   if (!["bookings", "expenses", "payroll", "moneylog"].every(c => S.loaded[c])) return head("Sales deposit", "Loading your records…") + '<div class="panel"><div class="empty"><b>Loading…</b>Adding up payments, expenses and transfers.</div></div>';
   const ev = moneyEvents(), wk = ev.filter(e => e.date >= ws && e.date <= we);
   let html = head("Sales deposit", `${fmtDate(ws, { weekday: "short", month: "short", day: "numeric" })} – ${fmtDate(we, { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · Monday to Sunday`,
-    `<button class="btn" data-act="mWeek" data-k="-7" aria-label="Previous week">‹</button><button class="btn" data-act="mWeek" data-k="0">This week</button><button class="btn" data-act="mWeek" data-k="7" aria-label="Next week">›</button>
+    `<label class="calpick" title="Go to the week of a date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><input type="date" data-mgo="1" aria-label="Go to date" value="${esc(ws)}"></label><button class="btn" data-act="mWeek" data-k="-7" aria-label="Previous week">‹</button><button class="btn" data-act="mWeek" data-k="0">This week</button><button class="btn" data-act="mWeek" data-k="7" aria-label="Next week">›</button>
      <button class="btn" data-act="transfer">Transfer ${acctName(ui.mAcct || "cash")} →</button><button class="btn primary" data-act="moneyOut">Add money out</button>`);
   // balance cards
   html += `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">${ACCTS.map(([a, l]) => {
@@ -1232,9 +1255,9 @@ const CASH_TRACK_FROM = "2026-11-21";
 const cashTracked = (b) => (b.date || "") >= CASH_TRACK_FROM;
 const cashPending = () => S.bookings.filter(b => b.status === "done" && cashTracked(b) && cashHeld(b) > 0 && !b.cashRemitted);
 function vCash() {
-  const pend = cashPending().filter(b => !ui.tech || b.techId === ui.tech).sort(byWhenAsc);
+  const pend = cashPending().filter(b => (!ui.tech || b.techId === ui.tech) && dateOk(b.date)).sort(byWhenAsc);
   const allPend = cashPending();
-  const done = S.bookings.filter(b => b.cashRemitted && cashHeld(b) > 0 && (!ui.tech || b.techId === ui.tech)).sort((a, b) => (b.remittedOn || "").localeCompare(a.remittedOn || "") || byWhenDesc(a, b));
+  const done = S.bookings.filter(b => b.cashRemitted && cashHeld(b) > 0 && (!ui.tech || b.techId === ui.tech) && (dateOk(b.date) || dateOk(b.remittedOn))).sort((a, b) => (b.remittedOn || "").localeCompare(a.remittedOn || "") || byWhenDesc(a, b));
   const byTech = {};
   allPend.forEach(b => { const k = b.techId || "none"; byTech[k] = byTech[k] || { id: b.techId, name: mainTechName(b), total: 0, n: 0, oldest: b.date }; byTech[k].total += cashHeld(b); byTech[k].n++; if (b.date < byTech[k].oldest) byTech[k].oldest = b.date; });
   const tot = allPend.reduce((a, b) => a + cashHeld(b), 0);
@@ -1247,7 +1270,7 @@ function vCash() {
       <div class="actions"><button class="btn sm primary" data-act="remitAll" data-k="${esc(c.id || "")}">Mark all remitted</button><button class="btn sm" data-act="techCash" data-k="${esc(c.id || "")}">See bookings</button></div></div>`).join("")}</div>`
     : `<div class="panel" style="margin-bottom:16px"><div class="empty"><b>All cash is remitted</b>When a technician receives cash for a booking, it shows here until you mark it as handed over.</div></div>`;
   const tabs = [["pending", `Not yet remitted (${allPend.length})`], ["done", "Remitted"]];
-  html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Status">${tabs.map(([k, l]) => `<button type="button" data-act="cashTab" data-k="${k}" aria-pressed="${ui.cashTab === k}">${l}</button>`).join("")}</div>${techFilter()}</div>
+  html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Status">${tabs.map(([k, l]) => `<button type="button" data-act="cashTab" data-k="${k}" aria-pressed="${ui.cashTab === k}">${l}</button>`).join("")}</div>${techFilter()}${calPick()}</div>
     ${ui.cashTab === "pending" && pend.length ? `<button class="btn sm primary" data-act="remitSel">Mark selected remitted</button>` : ""}</div>`;
   if (ui.cashTab === "pending") {
     if (!pend.length) return html + `<div class="empty">No cash waiting${ui.tech ? " for this technician" : ""}.</div></div>`;
@@ -1284,10 +1307,10 @@ const BJ_STATUS = { pending: ["Pending deduction", "low"], deducted: ["Deducted"
 const pendingBackjobs = (sid, r) => S.backjobs.filter(x => x.techId === sid && (x.status || "pending") === "pending" && inR(x.date, r));
 function vBackjobs() {
   const tabs = [["pending", "Pending"], ["all", "All"]];
-  const rows = S.backjobs.filter(x => (!ui.tech || x.techId === ui.tech) && (ui.bjTab === "all" || (x.status || "pending") === "pending")).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const rows = S.backjobs.filter(x => (!ui.tech || x.techId === ui.tech) && dateOk(x.date) && (ui.bjTab === "all" || (x.status || "pending") === "pending")).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const pend = S.backjobs.filter(x => (x.status || "pending") === "pending").reduce((a, x) => a + num(x.amount), 0);
   let html = head("Backjobs", `${S.backjobs.length} recorded · <span class="num">${money(pend)}</span> waiting to be deducted`, `<button class="btn" data-act="export" data-k="backjobs">Export CSV</button><button class="btn primary" data-act="newBackjob">Record backjob</button>`);
-  html += `<div class="panel"><div class="ph"><div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="bjTab" data-k="${k}" aria-pressed="${ui.bjTab === k}">${l}</button>`).join("")}</div>${techFilter()}<span class="note">Pending amounts are added to the technician's next weekly payroll automatically.</span></div>`;
+  html += `<div class="panel"><div class="ph"><div class="seg" role="group" aria-label="Filter">${tabs.map(([k, l]) => `<button type="button" data-act="bjTab" data-k="${k}" aria-pressed="${ui.bjTab === k}">${l}</button>`).join("")}</div>${techFilter()}${calPick()}<span class="note">Pending amounts are added to the technician's next weekly payroll automatically.</span></div>`;
   if (!rows.length) return html + `<div class="empty"><b>${S.backjobs.length ? "No pending backjobs" : "No backjobs yet"}</b>When a client comes back for a redo, record it here or open the booking and tap "Report backjob".<div class="actions"><button class="btn primary" data-act="newBackjob">Record backjob</button></div></div></div>`;
   return html + `<div class="tbl-wrap"><table><thead><tr><th>Date</th><th>Client</th><th>Service &amp; reason</th><th>Tech responsible</th><th>Redone by</th><th class="n">Deduction</th><th>Status</th><th></th></tr></thead><tbody>
     ${grouped(rows, x => (x.date || "").slice(0, 7), m => fmtDate(m + "-01", { month: "long", year: "numeric" }), 8, x => { const st = BJ_STATUS[x.status || "pending"] || BJ_STATUS.pending; return `<tr><td>${fmtDate(x.date, { weekday: "short", month: "short", day: "numeric" })}</td><td><b>${esc(x.client)}</b>${x.phone ? `<div class="meta">${esc(x.phone)}</div>` : ""}</td><td>${esc(x.service || "")}${x.reason ? `<div class="meta">${esc(x.reason)}</div>` : ""}</td>
@@ -1424,14 +1447,14 @@ function vHistory() {
   const all = S.audit.flatMap(a => (a.entries || []).map(e => ({ ...e, uid: a.id }))).sort((a, b) => b.t.localeCompare(a.t));
   const q = ui.hQ.toLowerCase();
   const restored = new Set(all.filter(e => e.action === "restore").map(e => e.col + "/" + e.id));
-  const rows = all.filter(e => (!ui.hWho || e.uid === ui.hWho) && (!ui.hCol || e.col === ui.hCol) && (!ui.hAct || e.action === ui.hAct || (ui.hAct === "login" && (e.action === "lock" || e.action === "logout"))) && (!q || [e.label, ...(e.changes || []).map(c => c.from + " " + c.to)].some(x => (x || "").toLowerCase().includes(q)))).slice(0, 400);
+  const rows = all.filter(e => dateOk(iso(new Date(e.t))) && (!ui.hWho || e.uid === ui.hWho) && (!ui.hCol || e.col === ui.hCol) && (!ui.hAct || e.action === ui.hAct || (ui.hAct === "login" && (e.action === "lock" || e.action === "logout"))) && (!q || [e.label, ...(e.changes || []).map(c => c.from + " " + c.to)].some(x => (x || "").toLowerCase().includes(q)))).slice(0, 400);
   const who = (id) => (S.people[id] && S.people[id].name) || (id === S.uid ? "You" : "Team member");
   const people = [...new Set(all.map(e => e.uid))];
   let html = head("Edit history", `${all.length} actions recorded · only you can see this page`);
   html += `<div class="panel"><div class="ph"><div class="toolbar"><select id="hWho" aria-label="Person"><option value="">Everyone</option>${people.map(u => `<option value="${esc(u)}" ${ui.hWho === u ? "selected" : ""}>${esc(who(u))}</option>`).join("")}</select>
     <select id="hCol" aria-label="Section"><option value="">All sections</option>${Object.entries(COL_LABEL).map(([k, l]) => `<option value="${k}" ${ui.hCol === k ? "selected" : ""}>${l}</option>`).join("")}</select>
     <select id="hAct" aria-label="Action"><option value="">All actions</option>${[["create", "Added"], ["edit", "Edited"], ["delete", "Deleted (can be restored)"], ["restore", "Restored"], ["login", "Log in / lock"], ["export", "Downloads"]].map(([k, l]) => `<option value="${k}" ${ui.hAct === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
-    <input type="search" id="hQ" placeholder="Search client, item, amount" value="${esc(ui.hQ)}" aria-label="Search history"></div>`;
+    <input type="search" id="hQ" placeholder="Search client, item, amount" value="${esc(ui.hQ)}" aria-label="Search history">${calPick()}</div>`;
   if (!rows.length) return html + `<div class="empty"><b>${all.length ? "Nothing matches" : "No actions recorded yet"}</b>Every add, edit, delete, log-in and download is listed here with who did it and what changed.</div></div>`;
   let day = "";
   html += rows.map(e => {
@@ -1853,6 +1876,7 @@ document.addEventListener("click", async (ev) => {
     switch (a) {
       case "close": closeDialog(); break;
       case "period": ui.period = k; ui.more = 0; render(); break;
+      case "dpClear": ui.period = "month"; ui.pFrom = ui.pTo = ""; ui.more = 0; render(); break;
       case "bkTab": ui.bkTab = k; render(); break;
       case "payTab": ui.payTab = k; render(); break;
       case "invCat": ui.invCat = k; render(); break;
