@@ -1105,7 +1105,7 @@ function vMoney() {
   const ev = moneyEvents(), wk = ev.filter(e => e.date >= ws && e.date <= we);
   let html = head("Sales deposit", `${fmtDate(ws, { weekday: "short", month: "short", day: "numeric" })} – ${fmtDate(we, { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · Monday to Sunday`,
     `<button class="btn" data-act="mWeek" data-k="-7" aria-label="Previous week">‹</button><button class="btn" data-act="mWeek" data-k="0">This week</button><button class="btn" data-act="mWeek" data-k="7" aria-label="Next week">›</button>
-     <button class="btn" data-act="transfer">Transfer ${acctName(ui.mAcct || "cash")} →</button><button class="btn" data-act="moveMoney">Move / turn over</button><button class="btn primary" data-act="moneyOut">Add money out</button>`);
+     <button class="btn" data-act="transfer">Transfer ${acctName(ui.mAcct || "cash")} →</button><button class="btn primary" data-act="moneyOut">Add money out</button>`);
   // balance cards
   html += `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">${ACCTS.map(([a, l]) => {
     const bal = balanceAt(ev, a, we < t ? we : t), inn = wk.filter(e => e.acct === a && e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0), out = -wk.filter(e => e.acct === a && e.amt < 0).reduce((s, e) => s + e.amt, 0);
