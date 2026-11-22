@@ -182,6 +182,16 @@ tr.zebra, tr.zebra > td { background: color-mix(in srgb, var(--ink) 6%, var(--su
 .calpick .to { font-size: 12px; }
 .calpick.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--accent); }
 @media (max-width: 860px) { .calpick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; width: 100%; gap: 4px; } .calpick input[type="date"] { max-width: none; width: 100%; font-size: 13px; } label.calpick { grid-template-columns: auto minmax(0, 1fr); } }
+button.banner.tipban { border: 1px solid color-mix(in srgb, var(--warn, #b45309) 30%, transparent); color: inherit; }
+.sstrip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 14px; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
+.sstrip > div { padding: 12px 16px; min-width: 0; }
+.sstrip > div:nth-child(1) { background: var(--accent); color: var(--accent-ink); }
+.sstrip > div:nth-child(2) { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.sstrip .l { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; opacity: .85; }
+.sstrip b { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.sstrip .sn { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 6px 16px; border-top: 1px solid var(--line); background: var(--surface); }
+.panel .sstrip { margin: 0; border: 0; border-radius: 0; border-bottom: 1px solid var(--line); }
+@media (max-width: 860px) { .sstrip > div { padding: 10px 10px; } .sstrip b { font-size: 14px; } .sstrip .l { font-size: 10px; } }
 .linkish { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 @media (max-width: 860px) { .mcard { padding: 12px 10px; } .mcard .v { font-size: 15px; white-space: nowrap; } .mday .hm { display: none; } .mday td, .mday th { padding: 8px 6px; font-size: 13px; } .mday .btn.sm { padding: 4px 8px; } }
 tr.today-row td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
@@ -482,6 +492,11 @@ const overall = (b) => svcTotal(b) + num(b.transpo);
 const TIP_VIA = [["gcash", "GCash (with the payment)"], ["bdo", "BDO (with the payment)"], ["cash", "Cash, kept by the tech"]];
 const tipOnline = (b) => b.tipVia === "gcash" || b.tipVia === "bdo" ? num(b.tip) : 0;
 const amountDue = (b) => overall(b) + tipOnline(b);
+// Tips the salon received with the bill (GCash/BDO) and still has to hand to the technician. Tracked from Nov 20, 2026 (when the sheet syncing began).
+const TIP_TRACK_FROM = "2026-11-20";
+const tipOwed = (b) => num(b.tip) > 0 && b.status === "done" && (b.date || "") >= TIP_TRACK_FROM && b.tipVia !== "cash" && !b.tipGiven;
+const tipsOwed = () => S.bookings.filter(tipOwed).sort(byWhenAsc);
+const salesStrip = (svc, tr, note = "") => `<div class="sstrip"><div><span class="l">Sales with transpo</span><b class="num">${money(svc + tr)}</b></div><div><span class="l">Sales without transpo</span><b class="num">${money(svc)}</b></div><div><span class="l">Transpo</span><b class="num">${money(tr)}</b></div>${note ? `<div class="sn">${note}</div>` : ""}</div>`;
 const trSplit = (b) => (b.transpoGo != null || b.transpoBack != null) ? [num(b.transpoGo), num(b.transpoBack)] : [num(b.transpo), null];
 const trCell = (b) => { const [g, r] = trSplit(b); return `${money(b.transpo)}${r != null && (g || r) ? `<div class="meta">Going ${money(g)} · Return ${money(r)}</div>` : ""}`; };
 const trInputs = () => num(fv("transpoGo")) + num(fv("transpoBack"));
@@ -798,12 +813,15 @@ function vOverview() {
     <div><div class="l">This week</div><div class="v">${money(wkDone.reduce((a, b) => a + overall(b), 0))}</div><div class="h">${wkDone.length} clients · ${fmtDate(wk[0], { month: "short", day: "numeric" })} – ${fmtDate(wk[1], { month: "short", day: "numeric" })}</div></div>
     <div><div class="l">Next appointment</div>${next ? `<div class="v" style="font-size:16px">${next.date === t ? "" : fmtDay(next.date) + " · "}${fmtTime(next.time) || "Time not set"}</div><div class="h">${esc(next.client || "Client")} · ${esc(techName(next))}</div>` : `<div class="v" style="font-size:16px">None booked</div>`}</div>
   </div>`;
+  const tq = canSee("cash") ? tipsOwed() : [];
+  if (tq.length) html += `<button type="button" class="banner tipban" data-act="tipsList" style="width:100%;text-align:left;font:inherit;cursor:pointer"><span><b class="num">${money(tq.reduce((a, b) => a + num(b.tip), 0))}</b> in tips to give to technicians · ${[...new Set(tq.map(b => mainTechName(b).split(" ")[0]))].map(n => `${esc(n)} ${money(tq.filter(b => mainTechName(b).split(" ")[0] === n).reduce((a, b) => a + num(b.tip), 0))}`).join(" · ")}</span><span class="btn sm">View tips</span></button>`;
   const cp = canSee("cash") ? cashPending() : [];
   if (cp.length) {
     const per = {}; cp.forEach(b => { const n = mainTechName(b).split(" ")[0]; per[n] = (per[n] || 0) + cashHeld(b); });
     html += `<a class="banner" href="#cash" style="text-decoration:none"><span><b class="num">${money(cp.reduce((a, b) => a + cashHeld(b), 0))}</b> cash still with technicians · ${Object.entries(per).map(([n, v]) => `${esc(n)} ${money(v)}`).join(" · ")}</span><span class="btn sm">View</span></a>`;
   }
   html += `<div class="toolbar" style="justify-content:space-between;margin-bottom:12px"><div><h2>${esc(r[2])}</h2>${pr ? `<span class="note">Arrows compare with ${esc(L)}</span>` : ""}</div>${periodSeg()}</div>`;
+  html += salesStrip(A.svc, A.tr, `${A.n} completed booking${A.n === 1 ? "" : "s"} · tips not included`);
   const kpi = (l, v, h, d, cls = "") => `<div class="kpi"><div class="l">${l}</div><div class="v ${cls}">${v}</div><div class="h">${h}</div>${d || ""}</div>`;
   html += `<div class="kpis kpis6">
     ${kpi("Service sales", money(A.svc), "Without transpo", delta(A.svc, P && P.svc, L))}
@@ -953,6 +971,7 @@ function vBookings() {
   let html = head("Bookings", ui.bkTab === "upcoming" ? `${rows.length} booked${overdue ? ` · <b style="color:var(--warn)">${overdue} past date, not marked done</b>` : ""}` : `${ui.tech ? esc((staffById(ui.tech) || {}).name || "") + " · " : ""}${r[2]} · ${rows.length} bookings · <span class="num">${money(totals.s + totals.t)}</span>`,
     `<button class="btn" data-act="export" data-k="bookings">Export CSV</button>${true ? `<button class="btn fb" data-act="fbPaste">${FBI}Paste from Facebook</button>` : ""}<button class="btn primary" data-act="newBooking">New booking</button>`);
   html += `<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">${tabs.map(([k, l]) => `<button type="button" data-act="bkTab" data-k="${k}" aria-pressed="${ui.bkTab === k}">${l}</button>`).join("")}</div>${ui.bkTab !== "upcoming" ? periodSeg() : calPick()}${techFilter()}</div><input type="search" id="bkQ" placeholder="Search client, number, tech, service" value="${esc(ui.bkQ)}" aria-label="Search bookings"></div>`;
+  if (ui.bkTab === "done") html = html.replace('<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">', salesStrip(totals.s, totals.t, `${rows.length} completed booking${rows.length === 1 ? "" : "s"}${ui.tech ? " · " + esc((staffById(ui.tech) || {}).name || "") : ""} · tips not included`) + '<div class="panel"><div class="ph"><div class="toolbar"><div class="seg" role="group" aria-label="Booking status">');
   if (!rows.length) return html + `<div class="empty"><b>${S.bookings.length ? "Nothing here" : "No bookings yet"}</b>${S.bookings.length ? "Try another tab, a wider period, or clear the search." : "Record your first client. New bookings start as Booked; mark them done once the service is finished."}<div class="actions"><button class="btn primary" data-act="newBooking">New booking</button></div></div></div>`;
   if (ui.bkTab === "upcoming") return html + `<div class="pb">${apptList(rows, "")}</div></div>`;
   let zi = 0;
@@ -961,7 +980,7 @@ function vBookings() {
       <td><b>${esc(b.client || "Client")}</b>${b.visit ? ` <span class="pill acc">${esc(b.visit)} visit</span>` : ""}${b.phone ? `<div class="meta">${esc(b.phone)}</div>` : ""}</td>
       <td>${esc(svcSummary(b))}${b.backjob ? ' <span class="pill low">Backjob</span>' : ""}${b.notes ? `<div class="meta">${esc(b.notes.slice(0, 120))}</div>` : ""}${num(b.discount) ? `<div class="meta">Less ${money(b.discount)}</div>` : ""}</td>
       <td>${esc(techName(b))}</td><td class="n">${money(svcTotal(b))}</td><td class="n">${trCell(b)}</td><td class="n">${money(commission(b))}${b.techId2 ? `<div class="meta">${Object.entries(techShares(b)).map(([t, o]) => `${esc(((staffById(t) || {}).name || "?").split(" ")[0])} ${money(o.comm)}`).join(" · ")}</div>` : ""}</td>
-      <td>${dpAmt(b) ? `<span class="pay"><i style="background:var(--accent)"></i>DP ${money(dpAmt(b))}</span><br>` : ""}${METHODS.filter(([k]) => num((b.pay || {})[k])).map(([k, l, c]) => `<span class="pay"><i style="background:${c}"></i>${l} ${money(b.pay[k])}</span>`).join("<br>") || (dpAmt(b) ? "" : '<span class="pill out">Unpaid</span>')}${bal > 0.5 && paidTotal(b) ? `<div><span class="pill low">Balance ${money(bal)}</span></div>` : ""}${num(b.tip) ? `<div class="meta">Tip ${money(b.tip)}${b.tipVia ? " · " + ({ gcash: "GCash", bdo: "BDO", cash: "cash to tech" }[b.tipVia] || "") : ""}</div>` : ""}</td>
+      <td>${dpAmt(b) ? `<span class="pay"><i style="background:var(--accent)"></i>DP ${money(dpAmt(b))}</span><br>` : ""}${METHODS.filter(([k]) => num((b.pay || {})[k])).map(([k, l, c]) => `<span class="pay"><i style="background:${c}"></i>${l} ${money(b.pay[k])}</span>`).join("<br>") || (dpAmt(b) ? "" : '<span class="pill out">Unpaid</span>')}${bal > 0.5 && paidTotal(b) ? `<div><span class="pill low">Balance ${money(bal)}</span></div>` : ""}${num(b.tip) ? `<div class="meta">Tip ${money(b.tip)}${b.tipVia ? " · " + ({ gcash: "GCash", bdo: "BDO", cash: "cash to tech" }[b.tipVia] || "") : ""}${tipOwed(b) ? ` <span class="pill low">to give</span>${S.canEdit ? ` <button type="button" class="btn sm" data-act="tipGive" data-id="${b.id}">Given</button>` : ""}` : b.tipGiven ? ` <span class="pill ok">given ${fmtDate(b.tipGivenOn, { month: "short", day: "numeric" })}</span>` : ""}</div>` : ""}</td>
       <td class="act"><button class="btn sm ghost" data-act="editBooking" data-id="${b.id}">Open</button></td></tr>`; }, g => money(g.reduce((a, b) => a + overall(b), 0)))}
     <tr class="total"><td colspan="4">Total</td><td class="n">${money(totals.s)}</td><td class="n">${money(totals.t)}</td><td class="n">${money(totals.c)}</td><td colspan="2"></td></tr>
   </tbody></table></div>${rows.length > 80 + (ui.more || 0) ? `<div class="pb" style="text-align:center"><button class="btn" data-act="showMore">Show more bookings (${rows.length - 80 - (ui.more || 0)} left)</button></div>` : ""}</div>`;
@@ -1110,6 +1129,7 @@ function moneyEvents() {
     if (b.status === "done") ACCTS.forEach(([k]) => { const v = num((b.pay || {})[k]); if (v && !(k === "cash" && held)) ev.push({ date: b.date, acct: k, amt: v, type: "in", tech: mainTechName(b), label: b.client || "Client", ref: ["bookings", b.id] }); });
     if (b.dpPaid && b.status !== "cancelled" && num(b.dpAmount) && !(held && b.dpMethod === "cash" && b.dpWithTech)) { const k = b.dpMethod || "gcash"; ev.push({ date: b.dpDate || b.date, acct: k, amt: num(b.dpAmount), type: "in", tech: mainTechName(b), label: `${b.client || "Client"} (DP)`, ref: ["bookings", b.id] }); }
   });
+  S.bookings.forEach(b => { if (b.tipGiven && b.tipGivenFrom && num(b.tip)) ev.push({ date: b.tipGivenOn || b.date, acct: b.tipGivenFrom, amt: -num(b.tip), type: "out", cat: `Tip · ${mainTechName(b).split(" ")[0]}`, label: `Tip for ${mainTechName(b)} (${b.client || "client"}, ${fmtDate(b.date, { month: "short", day: "numeric" })})`, ref: ["bookings", b.id] }); });
   S.expenses.forEach(e => { if (e.paidFrom && num(e.amount)) ev.push({ date: e.date, acct: e.paidFrom, amt: -num(e.amount), type: "out", cat: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, label: `${e.category || "Expense"}${e.item ? " · " + e.item : ""}`, ref: ["expenses", e.id] }); });
   S.payroll.forEach(p => (p.lines || []).forEach(l => { if (linePaid(p, l) && l.paidFrom && num(l.net)) ev.push({ date: l.paidOn || p.periodEnd, acct: l.paidFrom, amt: -num(l.net), type: "out", cat: `${(l.name || "").split(" ")[0]} salary`, label: `Salary · ${l.name} (${linePeriod(p, l)})`, ref: ["payroll", p.id] }); }));
   S.moneylog.forEach(m => {
@@ -1140,6 +1160,10 @@ function vMoney() {
     return `<button type="button" class="kpi mcard" data-act="mAcct" data-k="${a}" aria-pressed="${k === a}"><div class="l">${l}</div><div class="v ${bal < 0 ? "neg" : ""}">${bal == null ? '<span class="note" style="font-size:13px;font-family:inherit">Not set yet</span>' : money(bal)}</div><div class="h">${we < t ? "End of week" : "Now"}<br>In ${money(inn)}<br>Out ${money(out)}</div></button>`; }).join("")}</div>`;
   const op = openingOf(k);
   if (!op) html += `<div class="banner" style="margin-bottom:14px"><span><b>${acctName(k)}: starting balance not set.</b> Count the ${acctName(k)} money you have on a day, enter it once, and the running balance starts from there.</span><button class="btn sm primary" data-act="mOpening" data-k="${k}">Set starting balance</button></div>`;
+  { const wb = S.bookings.filter(b => b.status === "done" && b.date >= ws && b.date <= we), dsum = (d, f) => wb.filter(b => !d || b.date === d).reduce((a, b) => a + f(b), 0);
+    html += `<div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Sales this week</h2><span class="note">All payment methods · completed bookings · tips not included</span></div>${salesStrip(dsum(null, svcTotal), dsum(null, b => num(b.transpo)))}
+      <div class="tbl-wrap"><table class="mgrid keep"><thead><tr><th>Sales</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
+      ${[["With transpo", b => svcTotal(b) + num(b.transpo)], ["Without transpo", svcTotal], ["Transpo", b => num(b.transpo)]].map(([l, f], i) => `<tr${i === 0 ? ' class="total"' : ""}><td><b>${l}</b></td>${days.map(d => `<td class="n">${dsum(d, f) ? moneyW(dsum(d, f)) : "—"}</td>`).join("")}<td class="n"><b>${moneyW(dsum(null, f))}</b></td></tr>`).join("")}</tbody></table></div></div>`; }
   if (k === "cash") { const pend = cashPending(); if (pend.length) html += `<a class="banner" href="#cash" style="text-decoration:none;margin-bottom:14px"><span><b class="num">${money(pend.reduce((a, b) => a + cashHeld(b), 0))}</b> of the cash counted here is not remitted yet (still with the technicians). Mark it in Cash on hand once it's handed over.</span><span class="btn sm">Cash on hand</span></a>`; }
   // latest activity for this account since its starting balance, whatever week is shown
   if (op) {
@@ -1168,7 +1192,7 @@ function vMoney() {
     : `<div class="empty"><b>Nothing paid from ${acctName(k)} this week</b>Use "Add money out" for spending, or set "Paid from" on an expense. Salaries count here when you mark them paid from ${acctName(k)}.</div>`}</div>`;
   const outEv = acctEv.filter(e => e.amt < 0), cats = [...new Set(outEv.map(e => e.cat || e.label))].sort((a, b) => a.localeCompare(b));
   html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} expenses</h2><span class="note">Spending, salaries and money moved out of ${acctName(k)} · ${fmtDate(ws, { month: "short", day: "numeric" })} – ${fmtDate(we, { month: "short", day: "numeric" })}</span><button class="btn sm primary" data-act="addSpend">Add ${acctName(k)} expense</button></div>${outEv.length ? `<div class="tbl-wrap"><table class="mgrid keep"><thead><tr><th>Expense</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
-    ${cats.map(c => { const ce = outEv.filter(e => (e.cat || e.label) === c); return `<tr><td><b>${esc(c)}</b></td>${days.map(d => { const de = ce.filter(e => e.date === d), v = -de.reduce((s2, e) => s2 + e.amt, 0); return `<td class="n">${v ? `<button type="button" class="linkish" data-act="${de[0].ref[0] === "moneylog" ? "editMove" : de[0].ref[0] === "expenses" ? "editExpense" : "viewRun"}" data-id="${de[0].ref[1]}" title="${esc(de.map(e => e.label).join(", "))}">${money(v)}</button>` : ""}</td>`; }).join("")}<td class="n"><b>${money(-ce.reduce((s2, e) => s2 + e.amt, 0))}</b></td></tr>`; }).join("")}
+    ${cats.map(c => { const ce = outEv.filter(e => (e.cat || e.label) === c); return `<tr><td><b>${esc(c)}</b></td>${days.map(d => { const de = ce.filter(e => e.date === d), v = -de.reduce((s2, e) => s2 + e.amt, 0); return `<td class="n">${v ? `<button type="button" class="linkish" data-act="${de[0].ref[0] === "moneylog" ? "editMove" : de[0].ref[0] === "expenses" ? "editExpense" : de[0].ref[0] === "bookings" ? "editBooking" : "viewRun"}" data-id="${de[0].ref[1]}" title="${esc(de.map(e => e.label).join(", "))}">${money(v)}</button>` : ""}</td>`; }).join("")}<td class="n"><b>${money(-ce.reduce((s2, e) => s2 + e.amt, 0))}</b></td></tr>`; }).join("")}
     <tr class="total"><td>Total</td>${days.map(d => `<td class="n">${money(-outEv.filter(e => e.date === d).reduce((s2, e) => s2 + e.amt, 0))}</td>`).join("")}<td class="n">${money(-outEv.reduce((s2, e) => s2 + e.amt, 0))}</td></tr></tbody></table></div>`
     : `<div class="empty"><b>No ${acctName(k)} expenses this week</b>Tap "Add ${acctName(k)} expense" to record transpo, needs, salaries, loans and the rest paid from ${acctName(k)}.</div>`}</div>`;
   return html;
@@ -1197,6 +1221,24 @@ function openingDialog(k) {
     <p class="note" style="margin:0">Count it at the start of the day, before that day's payments and spending, because that day's money in and out is added on top.</p>`,
     `<button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Save</button>`,
     async () => { await S.db.doc("moneylog/open-" + k).set({ kind: "opening", to: k, from: "", date: fv("date"), amount: num(fv("amount")), updatedAt: now() }); toast(`${acctName(k)} starting balance saved`); });
+}
+function tipsDialog() {
+  const owed = tipsOwed(), given = S.bookings.filter(b => b.tipGiven && num(b.tip) && (b.date || "") >= TIP_TRACK_FROM && b.tipVia !== "cash").sort((a, b) => (b.tipGivenOn || "").localeCompare(a.tipGivenOn || "")).slice(0, 15);
+  const row = (b, give) => `<div class="row"><span style="min-width:0"><b>${esc(mainTechName(b))}</b> · ${money(b.tip)}<br><span class="note">${esc(b.client || "Client")} · ${fmtDate(b.date, { weekday: "short", month: "short", day: "numeric" })} · paid by ${b.tipVia === "bdo" ? "BDO" : "GCash"}${give ? "" : ` · given ${fmtDate(b.tipGivenOn, { month: "short", day: "numeric" })}${b.tipGivenFrom ? " from " + acctName(b.tipGivenFrom) : ""}`}</span></span>${give ? `<button type="button" class="btn sm primary" data-act="tipGive" data-id="${b.id}">Mark given</button>` : `<button type="button" class="btn sm ghost" data-act="tipUngive" data-id="${b.id}">Undo</button>`}</div>`;
+  openDialog("Tips for technicians", `
+    ${owed.length ? `<p style="margin:0"><b class="num">${money(owed.reduce((a, b) => a + num(b.tip), 0))}</b> to give · clients paid these tips together with the bill by GCash or BDO.</p><div class="list">${owed.map(b => row(b, true)).join("")}</div>` : '<p style="margin:0"><b>All tips have been given.</b></p>'}
+    ${given.length ? `<div class="sect" style="margin-top:6px">Recently given</div><div class="list">${given.map(b => row(b, false)).join("")}</div>` : ""}
+    <p class="note" style="margin:0">Cash tips go straight to the technician, so they don't show here.</p>`,
+    `<button type="button" class="btn" data-act="close">Close</button>`, null);
+}
+function tipGiveDialog(b) {
+  openDialog(`Give tip to ${mainTechName(b).split(" ")[0]}`, `
+    <p style="margin:0"><b class="num">${money(b.tip)}</b> tip from ${esc(b.client || "the client")} (${fmtDate(b.date, { month: "short", day: "numeric" })}) for <b>${esc(mainTechName(b))}</b></p>
+    <div class="fields"><label class="f">Date given<input class="inp" name="gdate" type="date" required value="${todayStr()}" max="${todayStr()}"></label>
+    <label class="f">Given from<select name="gfrom">${PAID_FROM.map(([v, l]) => `<option value="${v}" ${v === (b.tipVia === "bdo" ? "bdo" : "gcash") ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+    <p class="note" style="margin:0">"Given from" takes the tip out of that account in Sales deposit.</p>`,
+    `<button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Mark given</button>`,
+    async () => { await S.db.doc("bookings/" + b.id).update({ tipGiven: true, tipGivenOn: fv("gdate"), tipGivenFrom: fv("gfrom"), updatedAt: now() }); toast(`Tip marked given to ${mainTechName(b).split(" ")[0]}`); if (ui.reopenTips) { ui.reopenTips = false; setTimeout(tipsDialog, 0); } });
 }
 function transferDialog(from) {
   const ev = moneyEvents(), t = todayStr(), others = (f) => ACCTS.filter(([k]) => k !== f);
@@ -1619,6 +1661,7 @@ function bookingDialog(b, prefill, opts) {
       <label class="f">Transpo · going<input class="inp" name="transpoGo" type="number" step="0.01" min="0" value="${trSplit(b)[0] || ""}" placeholder="Fare to client"></label>
       <label class="f">Transpo · return<input class="inp" name="transpoBack" type="number" step="0.01" min="0" value="${trSplit(b)[1] || ""}" placeholder="Fare back"></label>
       <label class="f">Tip<input class="inp" name="tip" type="number" step="0.01" min="0" value="${num(b.tip) || ""}"></label>
+      <label class="f">Tip given to tech?<select name="tipGiven"><option value="0" ${b.tipGiven ? "" : "selected"}>Not yet</option><option value="1" ${b.tipGiven ? "selected" : ""}>Yes, given${b.tipGivenOn ? " " + fmtDate(b.tipGivenOn, { month: "short", day: "numeric" }) : ""}</option></select></label>
       <label class="f">Tip paid by<select name="tipVia">${TIP_VIA.map(([k, l]) => `<option value="${k}" ${(b.tipVia || "gcash") === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="f">Commission %<input class="inp" name="commRate" type="number" step="0.5" min="0" value="${esc(b.commRate ?? "")}" placeholder="${commDefault()}"></label></div>
     <div class="sect">Payment</div>
@@ -1639,7 +1682,7 @@ function bookingDialog(b, prefill, opts) {
       if (!items.length) throw { message: "Add at least one service." };
       const tech = staffById(fv("techId"));
       const data = { client: fv("client"), phone: fv("phone"), address: fv("address"), date: fv("date"), time: fv("time"), techId: fv("techId"), techName: tech ? tech.name : "", techId2: twoTech() ? fv("techId2") : "", status: fv("status"), items,
-        discount: num(fv("discount")), transpoGo: num(fv("transpoGo")), transpoBack: num(fv("transpoBack")), transpo: r2(trInputs()), tip: num(fv("tip")), tipVia: num(fv("tip")) ? fv("tipVia") || "gcash" : "", commRate: fv("commRate") === "" ? num(tech && tech.commRate != null ? tech.commRate : commDefault()) : num(fv("commRate")),
+        discount: num(fv("discount")), transpoGo: num(fv("transpoGo")), transpoBack: num(fv("transpoBack")), transpo: r2(trInputs()), tip: num(fv("tip")), tipVia: num(fv("tip")) ? fv("tipVia") || "gcash" : "", tipGiven: num(fv("tip")) ? fv("tipGiven") === "1" || fv("tipVia") === "cash" : false, tipGivenOn: num(fv("tip")) && (fv("tipGiven") === "1" || fv("tipVia") === "cash") ? (b.tipGivenOn || (fv("tipVia") === "cash" ? fv("date") : todayStr())) : "", commRate: fv("commRate") === "" ? num(tech && tech.commRate != null ? tech.commRate : commDefault()) : num(fv("commRate")),
         backjob: dform.elements.backjob.checked, pay: Object.fromEntries(METHODS.map(([k]) => [k, num(fv("pay_" + k))])), notes: fv("notes"), channel: fv("channel"),
         visit: fv("visit"), pastTechs: fv("pastTechs"), dpPaid: fv("dpPaid") === "1", dpAmount: fv("dpPaid") === "1" ? num(fv("dpAmount")) : 0, dpMethod: fv("dpMethod") || "gcash" };
       await save("bookings", isNew ? null : b.id, data);
@@ -1946,6 +1989,9 @@ document.addEventListener("click", async (ev) => {
       case "mOpening": openingDialog(k); break;
       case "moveMoney": moveDialog(); break;
       case "transfer": transferDialog(ui.mAcct || "cash"); break;
+      case "tipsList": tipsDialog(); break;
+      case "tipGive": { const bk = find("bookings", id); if (bk) { ui.reopenTips = dlg.open; tipGiveDialog(bk); } break; }
+      case "tipUngive": { const bk = find("bookings", id); if (bk && confirm(`Mark the ${money(bk.tip)} tip for ${mainTechName(bk).split(" ")[0]} as not given yet?`)) { await S.db.doc("bookings/" + id).update({ tipGiven: false, tipGivenOn: "", tipGivenFrom: "", updatedAt: now() }); toast("Tip moved back to 'to give'"); tipsDialog(); } break; }
       case "editMove": { const mm = find("moneylog", id); if (mm && mm.kind === "spend") spendDialog(mm); else if (mm && mm.kind === "opening") openingDialog(mm.to); else moveDialog(mm); break; }
       case "addSpend": spendDialog({ date: todayStr(), from: ui.mAcct || "gcash" }); break;
       case "delMove": if (armed(b)) { await S.db.doc("moneylog/" + id).delete(); closeDialog(); toast("Deleted"); } break;
