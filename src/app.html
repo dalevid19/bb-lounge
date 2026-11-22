@@ -1091,7 +1091,7 @@ function moneyEvents() {
     if (m.kind === "opening") { ev.push({ date: m.date, acct: m.to, amt: a, type: "open", label: "Starting balance", ref: ["moneylog", m.id] }); return; }
     if (m.kind === "spend") { ev.push({ date: m.date, acct: m.from, amt: -a, type: "out", cat: m.category || "Others", label: (m.category || "Spending") + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] }); return; }
     if (m.from) ev.push({ date: m.date, acct: m.from, amt: -a, type: "move", cat: m.to ? `To ${acctName(m.to)}` : `Turned over${m.who ? " · " + m.who : ""}`, label: (m.to ? `Moved to ${acctName(m.to)}` : "Turned over / taken out") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
-    if (m.to) ev.push({ date: m.date, acct: m.to, amt: a, type: "move", label: (m.from ? `Moved from ${acctName(m.from)}` : "Money added") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
+    if (m.to) ev.push({ date: m.date, acct: m.to, amt: a, type: "move", tech: m.from ? `From ${acctName(m.from)}` : "Money added", label: (m.from ? `Moved from ${acctName(m.from)}` : "Money added") + who + (m.note ? ` · ${m.note}` : ""), ref: ["moneylog", m.id] });
   });
   return ev;
 }
@@ -1104,7 +1104,7 @@ function vMoney() {
   const ev = moneyEvents(), wk = ev.filter(e => e.date >= ws && e.date <= we);
   let html = head("Sales deposit", `${fmtDate(ws, { weekday: "short", month: "short", day: "numeric" })} – ${fmtDate(we, { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · Monday to Sunday`,
     `<button class="btn" data-act="mWeek" data-k="-7" aria-label="Previous week">‹</button><button class="btn" data-act="mWeek" data-k="0">This week</button><button class="btn" data-act="mWeek" data-k="7" aria-label="Next week">›</button>
-     <button class="btn" data-act="moveMoney">Move / turn over</button><button class="btn primary" data-act="moneyOut">Add money out</button>`);
+     <button class="btn" data-act="cashToGcash">Cash → GCash</button><button class="btn" data-act="moveMoney">Move / turn over</button><button class="btn primary" data-act="moneyOut">Add money out</button>`);
   // balance cards
   html += `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">${ACCTS.map(([a, l]) => {
     const bal = balanceAt(ev, a, we < t ? we : t), inn = wk.filter(e => e.acct === a && e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0), out = -wk.filter(e => e.acct === a && e.amt < 0).reduce((s, e) => s + e.amt, 0);
@@ -1128,9 +1128,9 @@ function vMoney() {
         <td>${d <= t ? `<button type="button" class="btn sm ${ck ? "" : "ghost"}" data-act="mCheck" data-k="${d}" aria-pressed="${ck}" aria-label="${ck ? "Checked" : "Mark checked"}">${ck ? "✓<span class=\"hm\"> Checked</span>" : "Check<span class=\"hm\"> as counted</span>"}</button>` : ""}</td></tr>`; }).join("")}
       <tr class="total"><td>Week total</td><td class="n">${money(acctEv.filter(e => e.amt > 0 && e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${money(-acctEv.filter(e => e.amt < 0).reduce((s, e) => s + e.amt, 0))}</td><td class="n hm">${money(acctEv.filter(e => e.type !== "open").reduce((s, e) => s + e.amt, 0))}</td><td class="n">${balanceAt(ev, k, we < t ? we : t) == null ? "—" : money(balanceAt(ev, k, we < t ? we : t))}</td><td></td></tr></tbody></table></div></div>`;
   // money in grid per technician
-  const ins = acctEv.filter(e => e.type === "in"), techs = [...new Set(ins.map(e => e.tech))].sort();
+  const ins = acctEv.filter(e => e.type === "in" || (e.type === "move" && e.amt > 0)), techs = [...new Set(ins.map(e => e.tech))].sort((a, b) => (a.startsWith("From ") || a === "Money added") - (b.startsWith("From ") || b === "Money added") || a.localeCompare(b));
   html += `<div class="panel mt"><div class="ph"><h2>${acctName(k)} received</h2><span class="note">From bookings, by technician${k === "cash" ? ' · <span class="pill low">not remitted</span> = still with the technician' : ""}</span></div>${ins.length ? `<div class="tbl-wrap"><table class="mgrid"><thead><tr><th>Technician</th>${days.map(d => `<th class="n">${fmtDate(d, { weekday: "short" })}<div class="meta">${fmtDate(d, { day: "numeric" })}</div></th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
-    ${techs.map(tn => { const te = ins.filter(e => e.tech === tn); return `<tr><td><b>${esc(tn.split(" ")[0])}</b></td>${days.map(d => { const de = te.filter(e => e.date === d), v = de.reduce((s, e) => s + e.amt, 0), pv = de.filter(e => e.pending).reduce((s, e) => s + e.amt, 0); return `<td class="n" ${v ? `title="${esc(de.map(e => e.label + " " + money(e.amt)).join(", "))}"` : ""}>${v ? money(v) : ""}${pv ? `<div><span class="pill low" style="font-size:10px">${pv === v ? "not remitted" : money(pv) + " not remitted"}</span></div>` : ""}</td>`; }).join("")}<td class="n"><b>${money(te.reduce((s, e) => s + e.amt, 0))}</b></td></tr>`; }).join("")}
+    ${techs.map(tn => { const te = ins.filter(e => e.tech === tn); return `<tr><td><b>${esc(tn.startsWith("From ") || tn === "Money added" ? tn : tn.split(" ")[0])}</b></td>${days.map(d => { const de = te.filter(e => e.date === d), v = de.reduce((s, e) => s + e.amt, 0), pv = de.filter(e => e.pending).reduce((s, e) => s + e.amt, 0); return `<td class="n" ${v ? `title="${esc(de.map(e => e.label + " " + money(e.amt)).join(", "))}"` : ""}>${v ? money(v) : ""}${pv ? `<div><span class="pill low" style="font-size:10px">${pv === v ? "not remitted" : money(pv) + " not remitted"}</span></div>` : ""}</td>`; }).join("")}<td class="n"><b>${money(te.reduce((s, e) => s + e.amt, 0))}</b></td></tr>`; }).join("")}
     <tr class="total"><td>Total</td>${days.map(d => `<td class="n">${money(ins.filter(e => e.date === d).reduce((s, e) => s + e.amt, 0))}</td>`).join("")}<td class="n">${money(ins.reduce((s, e) => s + e.amt, 0))}</td></tr></tbody></table></div>` : `<div class="empty"><b>No ${acctName(k)} payments this week</b>Payments recorded on completed bookings show up here by day.</div>`}</div>`;
   // money out and moves
   const outs = acctEv.filter(e => e.type !== "in" && e.type !== "open").sort((a, b) => a.date.localeCompare(b.date));
@@ -1168,6 +1168,19 @@ function openingDialog(k) {
     <p class="note" style="margin:0">Count it at the start of the day, before that day's payments and spending, because that day's money in and out is added on top.</p>`,
     `<button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Save</button>`,
     async () => { await S.db.doc("moneylog/open-" + k).set({ kind: "opening", to: k, from: "", date: fv("date"), amount: num(fv("amount")), updatedAt: now() }); toast(`${acctName(k)} starting balance saved`); });
+}
+function cashToGcashDialog() {
+  const ev = moneyEvents(), bal = balanceAt(ev, "cash", todayStr());
+  openDialog("Transfer cash to GCash", `
+    ${bal != null ? `<p class="note" style="margin:0">Cash balance now: <b class="num">${money(bal)}</b></p>` : ""}
+    <div class="fields"><label class="f">Date transferred<input class="inp" name="date" type="date" required value="${todayStr()}" max="${todayStr()}"></label>
+    <label class="f">Amount<input class="inp" name="amount" type="number" step="0.01" min="0.01" required></label></div>
+    <label class="f">Note (optional)<input class="inp" name="note" placeholder="e.g. Cash in at 7-Eleven, ref. no."></label>
+    <p class="note" style="margin:0">This takes the amount out of Cash (noted "Moved to GCash") and adds it to GCash (noted "Moved from Cash") on the same day.</p>`,
+    `<button type="button" class="btn" data-act="close">Cancel</button><button class="btn primary" type="submit">Transfer</button>`,
+    async () => { const amt = num(fv("amount")); if (!(amt > 0)) throw { message: "Enter the amount transferred." };
+      await S.db.collection("moneylog").add({ kind: "move", date: fv("date"), amount: amt, from: "cash", to: "gcash", who: "", note: fv("note"), createdAt: now(), updatedAt: now() });
+      toast(`${money(amt)} moved from Cash to GCash`); });
 }
 function moveDialog(m) {
   const isNew = !m; m = m || { date: todayStr(), from: ui.mAcct || "cash", to: "" };
@@ -1897,6 +1910,7 @@ document.addEventListener("click", async (ev) => {
       case "mMore": ui.mMore = 1; render(); break;
       case "mOpening": openingDialog(k); break;
       case "moveMoney": moveDialog(); break;
+      case "cashToGcash": cashToGcashDialog(); break;
       case "editMove": { const mm = find("moneylog", id); if (mm && mm.kind === "spend") spendDialog(mm); else if (mm && mm.kind === "opening") openingDialog(mm.to); else moveDialog(mm); break; }
       case "addSpend": spendDialog({ date: todayStr(), from: ui.mAcct || "gcash" }); break;
       case "delMove": if (armed(b)) { await S.db.doc("moneylog/" + id).delete(); closeDialog(); toast("Deleted"); } break;
