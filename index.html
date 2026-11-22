@@ -427,6 +427,9 @@ textarea { width: 100%; resize: vertical; }
 .remind .ra button.pri { background: var(--accent); color: var(--accent-ink); }
 @keyframes remIn { from { transform: translateY(-14px); opacity: 0; } }
 @keyframes remRing { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(12deg); } 60% { transform: rotate(-8deg); } }
+.pchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.pchip { font: inherit; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; border: 1px dashed color-mix(in srgb, var(--warn, #b45309) 60%, var(--line)); background: transparent; color: var(--muted); cursor: pointer; }
+.pchip.ok { border-style: solid; border-color: transparent; background: color-mix(in srgb, #16a34a 16%, var(--surface)); color: color-mix(in srgb, #15803d 85%, var(--ink)); }
 .clockbar .alerts svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 5px; }
 .clockbar .alerts.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .clockbar .alerts.on { color: color-mix(in srgb, #15803d 85%, var(--ink)); }
@@ -1244,6 +1247,24 @@ function vInventory() {
 }
 
 /* ---------- Staff & payroll ---------- */
+const linePaid = (p, l) => l.paid != null ? !!l.paid : !!p.paid;
+function runStatus(p) {
+  const L = p.lines || [], n = L.filter(l => linePaid(p, l)).length;
+  return n === L.length && L.length ? ["Paid", "ok"] : n ? [`Partly paid · ${n} of ${L.length}`, "acc"] : ["Unpaid", "low"];
+}
+const linePeriod = (p, l) => `${fmtDate(l.periodStart || p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(l.periodEnd || p.periodEnd, { month: "short", day: "numeric" })}`;
+function paidChips(p) {
+  return `<div class="pchips">${(p.lines || []).map((l, i) => { const ok = linePaid(p, l); return `<button type="button" class="pchip ${ok ? "ok" : ""}" data-act="linePaid" data-id="${p.id}" data-k="${i}" aria-pressed="${ok}" title="${esc(l.name)} · ${money(l.net)} · ${linePeriod(p, l)} · tap to mark ${ok ? "unpaid" : "paid"}">${ok ? "✓" : "○"} ${esc((l.name || "").split(" ")[0])}</button>`; }).join("")}</div>`;
+}
+function unpaidPanel(runs) {
+  const owed = [];
+  runs.forEach(p => (p.lines || []).forEach((l, i) => { if (!linePaid(p, l) && num(l.net) > 0) owed.push({ p, l, i }); }));
+  if (!owed.length) return `<div class="banner" style="margin-bottom:14px"><span><b>Everyone is paid.</b> No salaries waiting.</span></div>`;
+  owed.sort((a, b) => (a.l.periodEnd || a.p.periodEnd || "").localeCompare(b.l.periodEnd || b.p.periodEnd || ""));
+  return `<div class="panel" style="margin-bottom:14px"><div class="ph"><h2>Unpaid salaries</h2><span class="note"><b class="num">${money(owed.reduce((a, o) => a + num(o.l.net), 0))}</b> still to pay · ${owed.length} payslip${owed.length === 1 ? "" : "s"}</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>Staff</th><th>Pay period</th><th class="n">Take-home</th><th></th></tr></thead><tbody>${owed.map(o => `<tr><td><b>${esc(o.l.name)}</b><div class="meta">${esc(o.l.role || "")}</div></td><td>${linePeriod(o.p, o.l)}</td><td class="n">${money(o.l.net)}</td>
+      <td class="act"><button class="btn sm" data-act="linePaid" data-id="${o.p.id}" data-k="${o.i}">Mark paid</button></td></tr>`).join("")}</tbody></table></div></div>`;
+}
 function vPayroll() {
   const tabs = [["staff", "Staff"], ["runs", "Pay runs"], ["13th", "13th month"]];
   const active = S.staff.filter(s => s.active !== false);
@@ -1255,9 +1276,9 @@ function vPayroll() {
   if (ui.payTab === "runs") {
     const runs = [...S.payroll].sort((a, b) => (b.periodStart || "").localeCompare(a.periodStart || ""));
     if (!runs.length) return html + `<div class="panel"><div class="empty"><b>No pay runs yet</b>Run payroll at the end of each week. Commission is filled in from that week's completed bookings.</div></div>`;
-    return html + `<div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Week</th><th class="n">Staff</th><th class="n">Basic</th><th class="n">OT</th><th class="n">Commission</th><th class="n">Deductions</th><th class="n">Take-home</th><th>Status</th><th></th></tr></thead><tbody>
+    return html + unpaidPanel(runs) + `<div class="panel"><div class="tbl-wrap"><table><thead><tr><th>Week</th><th class="n">Staff</th><th class="n">Basic</th><th class="n">OT</th><th class="n">Commission</th><th class="n">Deductions</th><th class="n">Take-home</th><th>Status</th><th></th></tr></thead><tbody>
       ${grouped(runs, p => weekInfo(p.periodStart).month, m => fmtDate(m + "-01", { month: "long", year: "numeric" }), 9, p => { const L = p.lines || [], s = k => L.reduce((a, l) => a + num(l[k]), 0); return `<tr><td>${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}<div class="meta">Week ${weekInfo(p.periodStart).n} of ${fmtDate(weekInfo(p.periodStart).month + "-01", { month: "long" })}</div></td><td class="n">${L.length}</td><td class="n">${money(s("basic"))}</td><td class="n">${money(s("otPay"))}</td><td class="n">${money(s("commission"))}</td><td class="n">${money(s("cashAdvance") + s("late") + L.reduce((a, l) => a + govOf(l), 0) - Math.min(0, L.reduce((a, l) => a + num(l.other), 0)))}</td><td class="n"><b>${money(p.totalNet)}</b></td>
-      <td>${p.paid ? '<span class="pill ok">Paid</span>' : '<span class="pill low">Unpaid</span>'}</td><td class="act"><button class="btn sm ghost" data-act="viewRun" data-id="${p.id}">Payslips</button></td></tr>`; }, g => "Take-home " + money(g.reduce((a, p) => a + num(p.totalNet), 0)))}
+      <td><span class="pill ${runStatus(p)[1]}">${runStatus(p)[0]}</span>${paidChips(p)}</td><td class="act"><button class="btn sm ghost" data-act="viewRun" data-id="${p.id}">Payslips</button></td></tr>`; }, g => "Take-home " + money(g.reduce((a, p) => a + num(p.totalNet), 0)))}
     </tbody></table></div></div>`;
   }
   const yr = ui.year, rows = {};
@@ -1844,7 +1865,7 @@ function recalcPay() {
 }
 function runDialog(p) {
   const L = p.lines || [];
-  const slip = (l) => `<div class="panel"><div class="ph"><h2>${esc(l.name)}</h2><span class="note">${esc(l.role || "")}${l.periodStart && (l.periodStart !== p.periodStart || l.periodEnd !== p.periodEnd) ? ` · ${fmtDate(l.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(l.periodEnd, { month: "short", day: "numeric" })}` : ""}</span></div><div class="pb"><div class="list">
+  const slip = (l, i) => `<div class="panel"><div class="ph"><div><h2>${esc(l.name)}</h2><span class="note">${esc(l.role || "")} · ${linePeriod(p, l)}</span></div><div class="actions">${linePaid(p, l) ? `<span class="pill ok">Paid${l.paidOn ? " " + fmtDate(l.paidOn, { month: "short", day: "numeric" }) : ""}</span>` : '<span class="pill low">Unpaid</span>'}<button type="button" class="btn sm" data-act="linePaid" data-id="${p.id}" data-k="${i}">${linePaid(p, l) ? "Mark unpaid" : "Mark paid"}</button></div></div><div class="pb"><div class="list">
     <div class="row"><span>Basic · ${r2(num(l.days))} day${num(l.days) === 1 ? "" : "s"} × ${money(l.dailyRate)}</span><span class="num">${money(l.basic)}</span></div>
     ${l.otPay ? `<div class="row"><span>Overtime${num(l.otHours) ? ` · ${r2(num(l.otHours))} h × ${money(l.otRate)}` : ""}</span><span class="num">${money(l.otPay)}</span></div>` : ""}
     ${l.commission ? `<div class="row"><span>Commission</span><span class="num">${money(l.commission)}</span></div>` : ""}
@@ -1857,7 +1878,7 @@ function runDialog(p) {
     ${num(l.other) ? `<div class="row"><span>${num(l.other) > 0 ? "Other additions (incentive, abono)" : "Other deductions"}</span><span class="num">${num(l.other) > 0 ? "+" : "−"}${money(Math.abs(num(l.other)))}</span></div>` : ""}
     <div class="row"><b>Take-home pay</b><b class="num" style="color:var(--accent)">${money(l.net)}</b></div></div></div></div>`;
   openDialog(`Payslips · ${fmtDate(p.periodStart, { month: "short", day: "numeric" })} – ${fmtDate(p.periodEnd)}`, `<div class="grid cols-2">${L.map(slip).join("")}</div><p class="note" style="margin:0">Total take-home <b class="num">${money(p.totalNet)}</b> for ${L.length} staff.</p>`,
-    `<button type="button" class="btn danger" data-act="delRun" data-id="${p.id}">Delete run</button><span style="flex:1"></span><button type="button" class="btn" data-act="close">Close</button><button type="button" class="btn primary" data-act="togglePaid" data-id="${p.id}">${p.paid ? "Mark as unpaid" : "Mark as paid"}</button>`, null, true);
+    `<button type="button" class="btn danger" data-act="delRun" data-id="${p.id}">Delete run</button><span style="flex:1"></span><button type="button" class="btn" data-act="close">Close</button><button type="button" class="btn primary" data-act="togglePaid" data-id="${p.id}">${runStatus(p)[0] === "Paid" ? "Mark everyone unpaid" : "Mark everyone paid"}</button>`, null, true);
 }
 function expenseDialog(e) {
   const isNew = !e; e = e || { date: todayStr() };
@@ -1973,7 +1994,12 @@ document.addEventListener("click", async (ev) => {
       case "delStaff": if (armed(b)) { await S.db.doc("staff/" + id).delete(); await S.db.doc("staffpay/" + id).delete(); closeDialog(); toast("Staff removed"); } break;
       case "runPayroll": payrollDialog(); break;
       case "viewRun": runDialog(find("payroll", id)); break;
-      case "togglePaid": { const p = find("payroll", id); await S.db.doc("payroll/" + id).update({ paid: !p.paid }); closeDialog(); toast(p.paid ? "Marked unpaid" : "Marked as paid"); break; }
+      case "togglePaid": { const p = find("payroll", id); const all = runStatus(p)[0] !== "Paid"; const lines = (p.lines || []).map(l => ({ ...l, paid: all, paidOn: all ? (linePaid(p, l) && l.paidOn ? l.paidOn : todayStr()) : "" }));
+        await S.db.doc("payroll/" + id).update({ lines, paid: all }); closeDialog(); toast(all ? "Everyone marked as paid" : "Everyone marked unpaid"); break; }
+      case "linePaid": { const p = find("payroll", id); if (!p) break; const i = +k, cur = linePaid(p, p.lines[i]);
+        const lines = p.lines.map((l, j) => ({ ...l, paid: j === i ? !cur : linePaid(p, l), paidOn: j === i ? (!cur ? todayStr() : "") : (l.paidOn || "") }));
+        await S.db.doc("payroll/" + id).update({ lines, paid: lines.every(l => l.paid) });
+        toast(`${(p.lines[i].name || "").split(" ")[0]} marked ${cur ? "unpaid" : "paid"}`); if (dlg.open) runDialog(find("payroll", id)); break; }
       case "delRun": if (armed(b)) { await S.db.doc("payroll/" + id).delete(); closeDialog(); toast("Pay run deleted"); } break;
       case "newExpense": expenseDialog(); break;
       case "editExpense": expenseDialog(find("expenses", id)); break;
@@ -2287,7 +2313,7 @@ async function exportCsv(kind) {
   if (kind === "expenses") rows = [["Date", "Category", "Item", "Qty", "Amount", "Note"], ...S.expenses.map(e => [e.date, e.category, e.item, e.qty, e.amount, e.note])];
   if (kind === "staff") rows = [["Name", "Role", "Phone", "Commission %", "Daily rate", "OT per hour", "Active"], ...S.staff.map(s => [s.name, s.role, s.phone, s.commRate, payOf(s.id).dailyRate, payOf(s.id).otRate, s.active !== false ? "yes" : "no"])];
   if (kind === "backjobs") rows = [["Date", "Client", "Number", "Service", "Reason", "Tech responsible", "Redone by", "Deduction", "Status"], ...S.backjobs.map(x => [x.date, x.client, x.phone, x.service, x.reason, (staffById(x.techId) || {}).name, (staffById(x.redoTechId) || {}).name, x.amount, x.status])];
-  if (kind === "payroll") rows = [["Week start", "Week end", "Staff", "Days", "Basic", "OT hrs", "OT pay", "Commission", "Tips", "Gross", "Cash adv/backjob", "Late", "SSS", "PhilHealth", "Pag-IBIG", "Take-home", "Paid"], ...S.payroll.flatMap(p => (p.lines || []).map(l => [p.periodStart, p.periodEnd, l.name, l.days, l.basic, l.otHours, l.otPay, l.commission, l.tips, l.gross, l.cashAdvance, l.late, l.sss, l.philhealth, l.pagibig, l.net, p.paid ? "yes" : "no"]))];
+  if (kind === "payroll") rows = [["Week start", "Week end", "Staff", "Days", "Basic", "OT hrs", "OT pay", "Commission", "Tips", "Gross", "Cash adv/backjob", "Late", "SSS", "PhilHealth", "Pag-IBIG", "Take-home", "Paid", "Paid on"], ...S.payroll.flatMap(p => (p.lines || []).map(l => [l.periodStart || p.periodStart, l.periodEnd || p.periodEnd, l.name, l.days, l.basic, l.otHours, l.otPay, l.commission, l.tips, l.gross, l.cashAdvance, l.late, l.sss, l.philhealth, l.pagibig, l.net, linePaid(p, l) ? "yes" : "no", l.paidOn || ""]))];
   if (!rows) return;
   if (!S.downloads) { toast("Downloads aren't available in this view"); return; }
   try { await S.downloads.save({ filename: `${kind}-${todayStr()}.csv`, data: toCsv(rows) }); } catch (err) { if (err && err.code !== "declined") toast("Couldn't save the file"); }
